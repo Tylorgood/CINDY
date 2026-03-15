@@ -20,12 +20,13 @@ export class MemoryHandler {
       return { success: false, message: 'What should I remember?' };
     }
 
+    // Use snake_case for Supabase
     const memory = {
       id: uuidv4(),
-      userId,
+      user_id: userId,
       type: 'fact',
       data: { fact },
-      createdAt: new Date().toISOString()
+      created_at: new Date().toISOString()
     };
 
     await this.storage.create('memories', memory);
@@ -41,9 +42,9 @@ export class MemoryHandler {
    */
   async recall(userId) {
     const memories = await this.storage.query('memories', {
-      eq: { userId },
+      eq: { user_id: userId },
       limit: 20,
-      orderBy: { column: 'createdAt', direction: 'desc' }
+      orderBy: { column: 'created_at', direction: 'desc' }
     });
 
     if (!memories || memories.length === 0) {
@@ -55,7 +56,7 @@ export class MemoryHandler {
     }
 
     // Group by type
-    const facts = memories.filter(m => m.type === 'fact').map(m => m.data.fact);
+    const facts = memories.filter(m => m.type === 'fact').map(m => m.data?.fact);
     
     let message = "Here's what I know about you:\n\n";
     
@@ -82,8 +83,7 @@ export class MemoryHandler {
    */
   async search(userId, query) {
     const memories = await this.storage.query('memories', {
-      eq: { userId },
-      like: { data: `%${query}%` }
+      eq: { user_id: userId }
     });
     
     return { success: true, data: memories };
