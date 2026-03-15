@@ -57,10 +57,50 @@ const storageWrapper = storageAdapter ? {
 
 console.log('📦 Storage wrapper:', storageWrapper ? 'ready' : 'NOT configured');
 
-// Initialize pipeline
+// Initialize AI FIRST
+let openai = null;
+const groqKey = process.env.GROQ_API_KEY;
+const openaiKey = process.env.OPENAI_API_KEY;
+
+console.log('🔑 GROQ key present:', !!groqKey);
+console.log('🔑 OPENAI key present:', !!openaiKey);
+
+// Test Groq model - use a working one
+const GROQ_MODEL = 'llama-3.1-8b-instant';
+
+// Try Groq first (it's free)
+if (groqKey) {
+  try {
+    const { OpenAI } = await import('openai');
+    openai = new OpenAI({ 
+      apiKey: groqKey,
+      baseURL: 'https://api.groq.com/openai/v1'
+    });
+    console.log('✓ Groq AI initialized with model:', GROQ_MODEL);
+  } catch (e) {
+    console.warn('⚠ Groq not available:', e.message);
+  }
+}
+
+// Fallback to OpenAI if Groq not set
+if (!openai && openaiKey && openaiKey.startsWith('sk-')) {
+  try {
+    const { OpenAI } = await import('openai');
+    openai = new OpenAI({ apiKey: openaiKey });
+    console.log('✓ OpenAI initialized');
+  } catch (e) {
+    console.warn('⚠ OpenAI not available:', e.message);
+  }
+}
+
+if (!openai) {
+  console.warn('⚠ No AI configured!');
+}
+
+// Initialize pipeline AFTER AI
 const intentRouter = new IntentRouter();
 const handlers = new HandlerRegistry(storageWrapper, intentRouter, openai);
-const auditLogger = new AuditLogger(storageAdapter);
+const auditLogger = new AuditLogger(storageWrapper);
 
 console.log('✓ Pipeline initialized');
 
