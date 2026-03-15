@@ -20,6 +20,9 @@ let openai = null;
 const groqKey = process.env.GROQ_API_KEY;
 const openaiKey = process.env.OPENAI_API_KEY;
 
+console.log('🔑 GROQ key present:', !!groqKey);
+console.log('🔑 OPENAI key present:', !!openaiKey);
+
 // Try Groq first (it's free)
 if (groqKey) {
   try {
@@ -43,6 +46,10 @@ if (!openai && openaiKey && openaiKey.startsWith('sk-')) {
   } catch (e) {
     console.warn('⚠ OpenAI not available:', e.message);
   }
+}
+
+if (!openai) {
+  console.warn('⚠ No AI configured!');
 }
 
 // Root route
