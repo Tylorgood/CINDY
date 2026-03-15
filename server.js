@@ -135,34 +135,30 @@ app.post('/telegram/webhook', async (req, res) => {
     
     console.log(`📋 Intent: ${routeResult.intent}, confidence: ${routeResult.confidence}`);
     console.log(`🤖 AI available:`, !!openai);
-    console.log(`🤖 AI type:`, openai?.constructor?.name);
     
     let result;
     
-    // If intent is unknown OR confidence is low and AI is available, try AI chat
-    console.log('🔍 Checking AI route:', { 
-      intentUnknown: routeResult.intent === 'unknown',
-      lowConfidence: routeResult.confidence < 0.5,
-      hasOpenai: !!openai
-    });
+    // If AI is available and message is conversational (not a command), use AI
+    // Otherwise use structured handlers
+    const isCommand = ['remember', 'add_task', 'show_tasks', 'show_projects', 'profile', 'help', 'complete_task'].includes(routeResult.intent);
     
-    if ((routeResult.intent === 'unknown' || routeResult.confidence < 0.5) && openai) {
-      console.log('🤖 Calling AI...');
+    if (openai && !isCommand) {
+      console.log('🤖 Using AI for natural conversation...');
       try {
         result = await handlers.chatWithAI(userId, text);
-        console.log('🤖 AI result:', result?.message?.substring(0, 100));
+        console.log('🤖 AI Response:', result?.message?.substring(0, 50));
       } catch (e) {
-        console.log('🤖 AI error:', e.message);
-        result = { success: false, message: 'AI error: ' + e.message };
+        console.log('🤖 AI Error:', e.message);
+        result = { success: false, message: 'AI error' };
       }
       
-      // If AI failed or returned empty, fall back to help
+      // If AI failed, fall back to help
       if (!result?.success || !result?.message) {
         console.log('🤖 AI failed, using help');
         result = await handlers.execute('help', 'suggest', userId, { originalText: text });
       }
     } else {
-      // Use structured handlers
+      // Use structured handlers for commands
       console.log(`🎯 Using handler: ${routeResult.handler}.${routeResult.action}`);
       result = await handlers.execute(
         routeResult.handler,
