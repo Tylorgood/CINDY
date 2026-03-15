@@ -47,6 +47,10 @@ const config = {
     apiKey: process.env.OPENAI_API_KEY,
   },
 
+  groq: {
+    apiKey: process.env.GROQ_API_KEY,
+  },
+
   opencode: {
     apiKey: process.env.OPENCODE_API_KEY,
   },

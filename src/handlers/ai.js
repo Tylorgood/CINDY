@@ -79,8 +79,9 @@ Be concise, friendly, and helpful.`;
     ];
 
     try {
+      // Use Groq's fast models (llama is free and fast)
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'llama-3.3-70b-versatile',
         messages: messages,
         temperature: 0.7,
         max_tokens: 500,
@@ -189,8 +190,9 @@ Be concise, friendly, and helpful.`;
     ];
 
     try {
+      // Use Groq's fast llama model
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'llama-3.3-70b-versatile',
         messages: messages,
         temperature: 0.7,
         max_tokens: 500,

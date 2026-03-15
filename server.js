@@ -15,10 +15,27 @@ const storageAdapter = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
 
-// Initialize OpenAI
+// Initialize AI (prefer Groq, fallback to OpenAI)
 let openai = null;
+const groqKey = process.env.GROQ_API_KEY;
 const openaiKey = process.env.OPENAI_API_KEY;
-if (openaiKey && openaiKey.startsWith('sk-')) {
+
+// Try Groq first (it's free)
+if (groqKey) {
+  try {
+    const { OpenAI } = await import('openai');
+    openai = new OpenAI({ 
+      apiKey: groqKey,
+      baseURL: 'https://api.groq.com/openai/v1'
+    });
+    console.log('✓ Groq AI initialized (free!)');
+  } catch (e) {
+    console.warn('⚠ Groq not available:', e.message);
+  }
+}
+
+// Fallback to OpenAI if Groq not set
+if (!openai && openaiKey && openaiKey.startsWith('sk-')) {
   try {
     const { OpenAI } = await import('openai');
     openai = new OpenAI({ apiKey: openaiKey });
@@ -26,8 +43,6 @@ if (openaiKey && openaiKey.startsWith('sk-')) {
   } catch (e) {
     console.warn('⚠ OpenAI not available:', e.message);
   }
-} else {
-  console.warn('⚠ OpenAI API key not configured');
 }
 
 // Root route
