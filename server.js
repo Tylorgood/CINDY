@@ -19,149 +19,47 @@ const storageAdapter = supabaseUrl && supabaseKey
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
 
-console.log('📦 Storage adapter:', storageAdapter ? 'ready' : 'NOT configured');
-
-// Initialize AI (prefer Groq, fallback to OpenAI)
-let openai = null;
-const groqKey = process.env.GROQ_API_KEY;
-const openaiKey = process.env.OPENAI_API_KEY;
-
-console.log('🔑 GROQ key present:', !!groqKey);
-console.log('🔑 OPENAI key present:', !!openaiKey);
-
-// Try Groq first (it's free)
-if (groqKey) {
-  try {
-    const { OpenAI } = await import('openai');
-    openai = new OpenAI({ 
-      apiKey: groqKey,
-      baseURL: 'https://api.groq.com/openai/v1'
-    });
-    console.log('✓ Groq AI initialized (free!)');
-  } catch (e) {
-    console.warn('⚠ Groq not available:', e.message);
-  }
-}
-
-// Fallback to OpenAI if Groq not set
-if (!openai && openaiKey && openaiKey.startsWith('sk-')) {
-  try {
-    const { OpenAI } = await import('openai');
-    openai = new OpenAI({ apiKey: openaiKey });
-    console.log('✓ OpenAI initialized');
-  } catch (e) {
-    console.warn('⚠ OpenAI not available:', e.message);
-  }
-}
-
-if (!openai) {
-  console.warn('⚠ No AI configured!');
-}
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('CINDY Personal Agent - AI-powered Telegram bot!');
-});
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    features: {
-      memory: !!storageAdapter,
-      ai: !!openai,
-      telegram: !!config.telegram?.botToken
+// Create storage wrapper with create/query methods
+const storageWrapper = storageAdapter ? {
+  create: async (table, data) => {
+    const result = await storageAdapter.from(table).insert(data).select().single();
+    if (result.error) throw new Error(result.error.message);
+    return result.data;
+  },
+  query: async (table, options = {}) => {
+    let q = storageAdapter.from(table).select('*');
+    if (options.eq) {
+      for (const [key, value] of Object.entries(options.eq)) {
+        q = q.eq(key, value);
+      }
     }
-  });
-});
-
-// Test memory endpoint
-app.post('/memory', async (req, res) => {
-  try {
-    const { type, data, userId = 'default-user' } = req.body;
-    
-    if (!storageAdapter) {
-      return res.status(500).json({ error: 'Storage not configured' });
+    if (options.limit) q = q.limit(options.limit);
+    if (options.orderBy) {
+      for (const [key, value] of Object.entries(options.orderBy)) {
+        q = q.order(key, { ascending: value.direction !== 'desc' });
+      }
     }
-    
-    // Use snake_case for Supabase
-    const memory = {
-      id: crypto.randomUUID(),
-      user_id: userId,
-      type: type || 'test',
-      data: data || {},
-      created_at: new Date().toISOString()
-    };
-    
-    const result = await storageAdapter.from('memories').insert(memory).select().single();
-    
-    res.json(result.data || result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  update: async (table, id, data) => {
+    const result = await storageAdapter.from(table).update(data).eq('id', id).select().single();
+    if (result.error) throw new Error(result.error.message);
+    return result.data;
+  },
+  delete: async (table, id) => {
+    const result = await storageAdapter.from(table).delete().eq('id', id);
+    if (result.error) throw new Error(result.error.message);
+    return { deleted: true };
   }
-});
+} : null;
 
-// Get memories
-app.get('/memory/:type', async (req, res) => {
-  try {
-    const { type } = req.params;
-    const { userId = 'default-user' } = req.query;
-    
-    if (!storageAdapter) {
-      return res.status(500).json({ error: 'Storage not configured' });
-    }
-    
-    const { data, error } = await storageAdapter
-      .from('memories')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('type', type)
-      .limit(20);
-    
-    if (error) throw error;
-    
-    res.json({ memories: data || [] });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Debug AI endpoint
-app.get('/debug-ai', async (req, res) => {
-  if (!openai) {
-    return res.json({ error: 'AI not configured' });
-  }
-  
-  try {
-    const result = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: 'Say hello!' }],
-    });
-    
-    return res.json({ 
-      success: true, 
-      response: result.choices[0]?.message?.content 
-    });
-  } catch (e) {
-    return res.json({ error: e.message });
-  }
-});
-
-// Debug route intent
-app.get('/debug-intent', (req, res) => {
-  const { text } = req.query;
-  if (!text) {
-    return res.json({ error: 'Provide text param' });
-  }
-  
-  const result = intentRouter.route(text);
-  return res.json(result);
-});
+console.log('📦 Storage wrapper:', storageWrapper ? 'ready' : 'NOT configured');
 
 // Initialize pipeline
 const intentRouter = new IntentRouter();
-const handlers = new HandlerRegistry(storageAdapter, intentRouter, openai);
+const handlers = new HandlerRegistry(storageWrapper, intentRouter, openai);
 const auditLogger = new AuditLogger(storageAdapter);
 
 console.log('✓ Pipeline initialized');
