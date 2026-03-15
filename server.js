@@ -134,39 +134,46 @@ app.post('/telegram/webhook', async (req, res) => {
     const routeResult = intentRouter.route(text);
     
     console.log(`📋 Intent: ${routeResult.intent}, confidence: ${routeResult.confidence}`);
-    console.log(`🤖 AI available:`, !!openai);
     
     let result;
     
-    // If AI is available and message is conversational (not a command), use AI
-    // Otherwise use structured handlers
-    const isCommand = ['remember', 'add_task', 'show_tasks', 'show_projects', 'profile', 'help', 'complete_task'].includes(routeResult.intent);
-    
-    if (openai && !isCommand) {
-      console.log('🤖 Using AI for natural conversation...');
+    // ALWAYS try AI first if available - it's your personal assistant!
+    if (openai) {
+      console.log('🤖 Using AI...');
       try {
         result = await handlers.chatWithAI(userId, text);
-        console.log('🤖 AI Response:', result?.message?.substring(0, 50));
+        console.log('🤖 AI Response:', result?.message?.substring(0, 80));
+        
+        // If AI worked, send it
+        if (result?.success && result?.message) {
+          // Send response
+          const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
+          await fetch(telegramUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: result.message,
+              parse_mode: 'Markdown'
+            })
+          });
+          
+          await auditLogger.logOutgoing(userId, messageId, result.message, 'ai');
+          return res.json({ ok: true });
+        }
       } catch (e) {
         console.log('🤖 AI Error:', e.message);
-        result = { success: false, message: 'AI error' };
       }
-      
-      // If AI failed, fall back to help
-      if (!result?.success || !result?.message) {
-        console.log('🤖 AI failed, using help');
-        result = await handlers.execute('help', 'suggest', userId, { originalText: text });
-      }
-    } else {
-      // Use structured handlers for commands
-      console.log(`🎯 Using handler: ${routeResult.handler}.${routeResult.action}`);
-      result = await handlers.execute(
-        routeResult.handler,
-        routeResult.action,
-        userId,
-        routeResult.params
-      );
     }
+    
+    // Fallback to handlers if AI failed
+    console.log(`🎯 Using handler: ${routeResult.handler}.${routeResult.action}`);
+    result = await handlers.execute(
+      routeResult.handler,
+      routeResult.action,
+      userId,
+      routeResult.params
+    );
 
     // Log action
     await auditLogger.logAction(userId, routeResult.intent, {
