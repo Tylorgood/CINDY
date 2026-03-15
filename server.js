@@ -80,13 +80,20 @@ app.post('/telegram/webhook', async (req, res) => {
     const routeResult = intentRouter.route(text);
     
     console.log(`📋 Intent: ${routeResult.intent}, confidence: ${routeResult.confidence}`);
+    console.log(`🤖 AI available:`, !!openai);
     
     let result;
     
     // If intent is unknown OR confidence is low and AI is available, try AI chat
     if ((routeResult.intent === 'unknown' || routeResult.confidence < 0.5) && openai) {
-      console.log('🤖 Using AI...');
-      result = await handlers.chatWithAI(userId, text);
+      console.log('🤖 Calling AI...');
+      try {
+        result = await handlers.chatWithAI(userId, text);
+        console.log('🤖 AI result:', result?.message?.substring(0, 100));
+      } catch (e) {
+        console.log('🤖 AI error:', e.message);
+        result = { success: false, message: 'AI error: ' + e.message };
+      }
       
       // If AI failed or returned empty, fall back to help
       if (!result?.success || !result?.message) {
