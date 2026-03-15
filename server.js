@@ -5,6 +5,10 @@ import config from './config/index.js';
 const app = express();
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.send('Personal Agent is running! Send commands to /action, /memory, /approvals');
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
