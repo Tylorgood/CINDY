@@ -133,47 +133,50 @@ app.post('/telegram/webhook', async (req, res) => {
     // Route intent
     const routeResult = intentRouter.route(text);
     
-    console.log(`📋 Intent: ${routeResult.intent}, confidence: ${routeResult.confidence}`);
+    console.log(`📋 Intent: ${routeResult.intent}`);
+    console.log(`🤖 AI ready:`, !!openai);
     
-    let result;
+    let responseText;
     
-    // ALWAYS try AI first if available - it's your personal assistant!
+    // ALWAYS try AI first if available
     if (openai) {
-      console.log('🤖 Using AI...');
+      console.log('🤖 Calling Groq...');
       try {
-        result = await handlers.chatWithAI(userId, text);
-        console.log('🤖 AI Response:', result?.message?.substring(0, 80));
+        const aiResult = await handlers.chatWithAI(userId, text);
+        console.log('🤖 Got:', aiResult?.message?.substring(0, 50));
         
-        // If AI worked, send it
-        if (result?.success && result?.message) {
-          // Send response
-          const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
-          await fetch(telegramUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: result.message,
-              parse_mode: 'Markdown'
-            })
-          });
-          
-          await auditLogger.logOutgoing(userId, messageId, result.message, 'ai');
-          return res.json({ ok: true });
+        if (aiResult?.success && aiResult?.message) {
+          responseText = aiResult.message;
         }
       } catch (e) {
-        console.log('🤖 AI Error:', e.message);
+        console.log('🤖 Error:', e.message);
       }
     }
     
-    // Fallback to handlers if AI failed
-    console.log(`🎯 Using handler: ${routeResult.handler}.${routeResult.action}`);
-    result = await handlers.execute(
-      routeResult.handler,
-      routeResult.action,
-      userId,
-      routeResult.params
-    );
+    // If no AI response, use handlers
+    if (!responseText) {
+      console.log('🎯 Handler:', routeResult.handler);
+      const result = await handlers.execute(
+        routeResult.handler,
+        routeResult.action,
+        userId,
+        routeResult.params
+      );
+      responseText = result?.message || 'Something went wrong';
+    }
+    
+    // Send response
+    console.log('📤 Sending:', responseText?.substring(0, 50));
+    const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
+    await fetch(telegramUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: responseText,
+        parse_mode: 'Markdown'
+      })
+    });
 
     // Log action
     await auditLogger.logAction(userId, routeResult.intent, {
