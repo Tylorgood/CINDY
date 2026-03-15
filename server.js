@@ -48,6 +48,38 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Debug AI endpoint
+app.get('/debug-ai', async (req, res) => {
+  if (!openai) {
+    return res.json({ error: 'AI not configured' });
+  }
+  
+  try {
+    const result = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: 'Say hello!' }],
+    });
+    
+    return res.json({ 
+      success: true, 
+      response: result.choices[0]?.message?.content 
+    });
+  } catch (e) {
+    return res.json({ error: e.message });
+  }
+});
+
+// Debug route intent
+app.get('/debug-intent', (req, res) => {
+  const { text } = req.query;
+  if (!text) {
+    return res.json({ error: 'Provide text param' });
+  }
+  
+  const result = intentRouter.route(text);
+  return res.json(result);
+});
+
 // Initialize pipeline
 const intentRouter = new IntentRouter();
 const handlers = new HandlerRegistry(storageAdapter, intentRouter, openai);
