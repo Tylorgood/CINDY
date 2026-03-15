@@ -17,14 +17,17 @@ const storageAdapter = supabaseUrl && supabaseKey
 
 // Initialize OpenAI
 let openai = null;
-if (config.openai?.apiKey && config.openai.apiKey !== 'YOUR_OPENAI_API_KEY') {
+const openaiKey = process.env.OPENAI_API_KEY;
+if (openaiKey && openaiKey.startsWith('sk-')) {
   try {
     const { OpenAI } = await import('openai');
-    openai = new OpenAI({ apiKey: config.openai.apiKey });
+    openai = new OpenAI({ apiKey: openaiKey });
     console.log('✓ OpenAI initialized');
   } catch (e) {
     console.warn('⚠ OpenAI not available:', e.message);
   }
+} else {
+  console.warn('⚠ OpenAI API key not configured');
 }
 
 // Root route
