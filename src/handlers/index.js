@@ -11,14 +11,14 @@ import { HelpHandler } from './help.js';
 import { AIHandler } from './ai.js';
 
 export class HandlerRegistry {
-  constructor(storageAdapter, intentRouter, openai = null) {
+  constructor(storageAdapter, intentRouter, openai = null, aiConfig = {}) {
     this.handlers = {
       memory: new MemoryHandler(storageAdapter),
       tasks: new TasksHandler(storageAdapter),
       projects: new ProjectsHandler(storageAdapter),
       profile: new ProfileHandler(storageAdapter),
       help: new HelpHandler(intentRouter),
-      ai: new AIHandler(openai, storageAdapter)
+      ai: new AIHandler(openai, storageAdapter, aiConfig)
     };
     
     this.aiHandler = this.handlers.ai;

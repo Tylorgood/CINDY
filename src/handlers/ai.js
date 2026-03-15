@@ -1,14 +1,13 @@
 /**
  * AI HANDLER
- * Uses GPT for natural language understanding and conversation
+ * Uses an OpenAI-compatible API for natural language understanding and conversation.
  */
 
-import { v4 as uuidv4 } from 'uuid';
-
 export class AIHandler {
-  constructor(openai, storageAdapter) {
+  constructor(openai, storageAdapter, aiConfig = {}) {
     this.openai = openai;
     this.storage = storageAdapter;
+    this.model = aiConfig.model || 'llama-3.1-8b-instant';
     this.conversations = new Map(); // userId -> message history
     
     this.systemPrompt = `You are CINDY, a helpful personal AI assistant. Your job is to help the user manage their life.
@@ -81,7 +80,7 @@ Be concise, friendly, and helpful.`;
     try {
       // Use Groq's fast models (llama is free and fast)
       const response = await this.openai.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model: this.model,
         messages: messages,
         temperature: 0.7,
         max_tokens: 500,
@@ -123,6 +122,10 @@ Be concise, friendly, and helpful.`;
       projects: [],
       memories: []
     };
+
+    if (!this.storage?.query) {
+      return context;
+    }
 
     try {
       // Get profile
@@ -192,7 +195,7 @@ Be concise, friendly, and helpful.`;
     try {
       // Use Groq's fast llama model
       const response = await this.openai.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model: this.model,
         messages: messages,
         temperature: 0.7,
         max_tokens: 500,

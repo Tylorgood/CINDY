@@ -14,12 +14,33 @@
 
 ```
 SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-anon-key
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-TWILIO_ACCOUNT_SID=your-sid
-TWILIO_AUTH_TOKEN=your-token
-TWILIO_PHONE_NUMBER=+1234567890
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+AI_PROVIDER=groq
+AI_MODEL=llama-3.1-8b-instant
+GROQ_API_KEY=your-groq-key
+```
+
+The app also supports these alternate AI setups:
+
+```bash
+# OpenRouter
+AI_PROVIDER=openrouter
+AI_MODEL=meta-llama/llama-3.1-8b-instruct:free
+OPENROUTER_API_KEY=your-openrouter-key
+OPENROUTER_SITE_URL=https://your-render-app.onrender.com
+OPENROUTER_APP_NAME=CINDY
+
+# OpenAI
+AI_PROVIDER=openai
+AI_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your-openai-key
+
+# Custom OpenAI-compatible endpoint
+AI_PROVIDER=custom
+AI_BASE_URL=https://your-model-host.example.com/v1
+AI_API_KEY=your-provider-key
+AI_MODEL=your-model-name
 ```
 
 ## Database Setup
@@ -133,10 +154,16 @@ npm run build
 2. Set environment variables in Render dashboard
 3. Deploy command: `npm start`
 
+If you want CINDY to use a self-hosted Qwen model on Render with a persistent
+disk, follow:
+
+- `docs/QWEN_RENDER.md`
+
 ## Verification
 
 After deployment, verify:
 - [ ] Agent loads without errors
 - [ ] Adapters initialize correctly
 - [ ] Database connection works
+- [ ] `/health` shows the expected `aiProvider` and `aiModel`
 - [ ] Audit logs are being created

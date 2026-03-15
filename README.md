@@ -27,6 +27,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system architecture.
 - [Architecture](./ARCHITECTURE.md)
 - [Technical Decisions](./TECH_DECISIONS.md)
 - [Deployment Guide](./docs/DEPLOYMENT.md)
+- [Qwen Self-Hosting](./docs/QWEN_SELF_HOSTING.md)
+- [Qwen on Render](./docs/QWEN_RENDER.md)
+- [Qwen on Runpod](./docs/QWEN_RUNPOD.md)
 - [Security Model](./docs/SECURITY.md)
 - [Runbook](./docs/RUNBOOK.md)
 

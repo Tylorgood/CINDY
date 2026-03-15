@@ -1,0 +1,46 @@
+services:
+  qwen-vllm:
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    gpus: all
+    env_file:
+      - .env
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN}
+    volumes:
+      - qwen-cache:/root/.cache/huggingface
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${PORT:-8000}
+      - --model
+      - ${MODEL_ID}
+      - --api-key
+      - ${VLLM_API_KEY}
+      - --max-model-len
+      - ${MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${GPU_MEMORY_UTILIZATION:-0.9}
+      - --served-model-name
+      - ${MODEL_ID}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - qwen-vllm
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  qwen-cache:
+  caddy-data:
+  caddy-config:

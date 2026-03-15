@@ -1,231 +1,186 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { IntentRouter } from './src/router/intent.js';
 import { HandlerRegistry } from './src/handlers/index.js';
 import { AuditLogger } from './src/audit/telegramLogger.js';
+import storageAdapter from './src/adapters/storage/index.js';
 import config from './config/index.js';
 
 const app = express();
 app.use(express.json());
 
-// Initialize Supabase
-const supabaseUrl = config.supabase?.url;
-const supabaseKey = config.supabase?.key;
+console.log('Supabase URL:', config.supabase?.url ? 'present' : 'missing');
+console.log('Supabase Key:', config.supabase?.key ? 'present' : 'missing');
 
-console.log('📦 Supabase URL:', supabaseUrl ? 'present' : 'missing');
-console.log('📦 Supabase Key:', supabaseKey ? 'present' : 'missing');
+const storage = storageAdapter.isInitialized() ? storageAdapter : null;
 
-const storageAdapter = supabaseUrl && supabaseKey 
-  ? createClient(supabaseUrl, supabaseKey) 
-  : null;
+console.log('Storage adapter:', storage ? 'ready' : 'NOT configured');
 
-// Create storage wrapper with create/query methods
-const storageWrapper = storageAdapter ? {
-  create: async (table, data) => {
-    const result = await storageAdapter.from(table).insert(data).select().single();
-    if (result.error) throw new Error(result.error.message);
-    return result.data;
-  },
-  query: async (table, options = {}) => {
-    let q = storageAdapter.from(table).select('*');
-    if (options.eq) {
-      for (const [key, value] of Object.entries(options.eq)) {
-        q = q.eq(key, value);
-      }
-    }
-    if (options.limit) q = q.limit(options.limit);
-    if (options.orderBy) {
-      for (const [key, value] of Object.entries(options.orderBy)) {
-        q = q.order(key, { ascending: value.direction !== 'desc' });
-      }
-    }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    return data || [];
-  },
-  update: async (table, id, data) => {
-    const result = await storageAdapter.from(table).update(data).eq('id', id).select().single();
-    if (result.error) throw new Error(result.error.message);
-    return result.data;
-  },
-  delete: async (table, id) => {
-    const result = await storageAdapter.from(table).delete().eq('id', id);
-    if (result.error) throw new Error(result.error.message);
-    return { deleted: true };
-  }
-} : null;
-
-console.log('📦 Storage wrapper:', storageWrapper ? 'ready' : 'NOT configured');
-
-// Initialize AI FIRST
 let openai = null;
-const groqKey = process.env.GROQ_API_KEY;
-const openaiKey = process.env.OPENAI_API_KEY;
+const aiConfig = config.ai;
 
-console.log('🔑 GROQ key present:', !!groqKey);
-console.log('🔑 OPENAI key present:', !!openaiKey);
+console.log('AI provider:', aiConfig.provider || 'not configured');
+console.log('AI key present:', !!aiConfig.apiKey);
+console.log('AI model:', aiConfig.model || 'not configured');
 
-// Test Groq model - use a working one
-const GROQ_MODEL = 'llama-3.1-8b-instant';
-
-// Try Groq first (it's free)
-if (groqKey) {
+if (aiConfig.provider && aiConfig.apiKey && aiConfig.model) {
   try {
     const { OpenAI } = await import('openai');
-    openai = new OpenAI({ 
-      apiKey: groqKey,
-      baseURL: 'https://api.groq.com/openai/v1'
-    });
-    console.log('✓ Groq AI initialized with model:', GROQ_MODEL);
-  } catch (e) {
-    console.warn('⚠ Groq not available:', e.message);
-  }
-}
+    const clientOptions = {
+      apiKey: aiConfig.apiKey
+    };
 
-// Fallback to OpenAI if Groq not set
-if (!openai && openaiKey && openaiKey.startsWith('sk-')) {
-  try {
-    const { OpenAI } = await import('openai');
-    openai = new OpenAI({ apiKey: openaiKey });
-    console.log('✓ OpenAI initialized');
-  } catch (e) {
-    console.warn('⚠ OpenAI not available:', e.message);
-  }
-}
-
-if (!openai) {
-  console.warn('⚠ No AI configured!');
-}
-
-// Initialize pipeline AFTER AI
-const intentRouter = new IntentRouter();
-const handlers = new HandlerRegistry(storageWrapper, intentRouter, openai);
-const auditLogger = new AuditLogger(storageWrapper);
-
-console.log('✓ Pipeline initialized');
-
-// Root route
-app.get('/', (req, res) => {
-  res.send('CINDY is running! 🤖');
-});
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', ai: !!openai, storage: !!storageWrapper });
-});
-
-// Telegram webhook - full pipeline
-app.post('/telegram/webhook', async (req, res) => {
-  try {
-    const { message } = req.body;
-    
-    // Validate incoming message
-    if (!message || !message.text || !message.chat) {
-      return res.json({ ok: true });
+    if (aiConfig.baseUrl) {
+      clientOptions.baseURL = aiConfig.baseUrl;
     }
 
-    const chatId = message.chat.id;
-    const text = message.text;
-    const messageId = message.message_id;
-    const userId = message.from?.username || message.from?.first_name || `tg_${message.from?.id}`;
-    const userName = message.from?.first_name || 'User';
+    if (aiConfig.provider === 'openrouter') {
+      clientOptions.defaultHeaders = {
+        'HTTP-Referer': aiConfig.referer || 'https://cindy-9bti.onrender.com',
+        'X-OpenRouter-Title': aiConfig.title || 'CINDY'
+      };
+    }
 
-    console.log(`📩 ${userName}: ${text}`);
+    openai = new OpenAI(clientOptions);
+    console.log(`AI initialized: ${aiConfig.provider} (${aiConfig.model})`);
+  } catch (error) {
+    console.warn('AI initialization failed:', error.message);
+  }
+} else {
+  console.warn('No AI configured');
+}
 
-    // Log incoming
+const intentRouter = new IntentRouter();
+const handlers = new HandlerRegistry(storage, intentRouter, openai, aiConfig);
+const auditLogger = new AuditLogger(storage);
+
+console.log('Pipeline initialized');
+
+function getUserId(message) {
+  return message.from?.username || message.from?.first_name || `tg_${message.from?.id}`;
+}
+
+async function sendTelegramMessage(chatId, text) {
+  if (!config.telegram?.botToken) {
+    throw new Error('Telegram bot token not configured');
+  }
+
+  const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
+  const telegramResponse = await fetch(telegramUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text
+    })
+  });
+
+  if (!telegramResponse.ok) {
+    const errorBody = await telegramResponse.text();
+    throw new Error(`Telegram API error (${telegramResponse.status}): ${errorBody}`);
+  }
+}
+
+async function resolveMessage(handlers, routeResult, userId, text) {
+  if (routeResult.intent === 'unknown' && handlers.hasAI()) {
+    try {
+      const aiResult = await handlers.chatWithAI(userId, text);
+      if (aiResult?.success && aiResult?.message) {
+        return {
+          result: aiResult,
+          execution: { source: 'ai', handler: 'ai', action: 'chat' }
+        };
+      }
+    } catch (error) {
+      console.error('AI request failed, falling back to handler:', error.message);
+    }
+  }
+
+  const handlerResult = await handlers.execute(
+    routeResult.handler,
+    routeResult.action,
+    userId,
+    routeResult.params
+  );
+
+  return {
+    result: handlerResult,
+    execution: {
+      source: 'handler',
+      handler: routeResult.handler,
+      action: routeResult.action
+    }
+  };
+}
+
+app.get('/', (req, res) => {
+  res.send('CINDY is running!');
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    ai: handlers.hasAI(),
+    storage: !!storage,
+    aiProvider: aiConfig.provider,
+    aiModel: aiConfig.model
+  });
+});
+
+app.post('/telegram/webhook', async (req, res) => {
+  const { message } = req.body;
+
+  if (!message || !message.text || !message.chat) {
+    return res.json({ ok: true });
+  }
+
+  const chatId = message.chat.id;
+  const text = message.text;
+  const messageId = message.message_id;
+  const userId = getUserId(message);
+  const userName = message.from?.first_name || 'User';
+
+  try {
+    console.log(`Telegram message from ${userName}: ${text}`);
+
     await auditLogger.logIncoming(userId, messageId, text, chatId);
 
-    // Route intent
     const routeResult = intentRouter.route(text);
-    
-    console.log(`📋 Intent: ${routeResult.intent}`);
-    console.log(`🤖 AI ready:`, !!openai);
-    
-    let responseText;
-    
-    // ALWAYS try AI first if available
-    if (openai) {
-      console.log('🤖 Calling Groq...');
-      try {
-        const aiResult = await handlers.chatWithAI(userId, text);
-        console.log('🤖 AI result:', aiResult?.success, aiResult?.message?.substring(0, 30));
-        
-        if (aiResult?.success && aiResult?.message) {
-          responseText = aiResult.message;
-        } else {
-          console.log('🤖 AI returned no message');
-        }
-      } catch (e) {
-        console.log('🤖 AI Error:', e.message);
-      }
-    } else {
-      console.log('🤖 No AI configured');
-    }
-    
-    // If no AI response, use handlers
-    if (!responseText) {
-      console.log('🎯 Handler:', routeResult.handler, routeResult.action);
-      try {
-        const result = await handlers.execute(
-          routeResult.handler,
-          routeResult.action,
-          userId,
-          routeResult.params
-        );
-        responseText = result?.message || 'No response';
-        console.log('📤 Handler result:', responseText?.substring(0, 50));
-      } catch (e) {
-        console.log('❌ Handler error:', e.message);
-        responseText = 'Error: ' + e.message;
-      }
-    }
-    
-    // Send response
-    console.log('📤 Sending:', responseText?.substring(0, 50));
-    const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
-    await fetch(telegramUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: responseText,
-        parse_mode: 'Markdown'
-      })
-    });
+    console.log(`Intent detected: ${routeResult.intent}`);
 
-    // Log action
-    await auditLogger.logAction(userId, routeResult.intent, {
-      handler: routeResult.handler,
-      params: routeResult.params,
-      success: result.success
-    }, result.success ? 'success' : 'failed');
+    const { result, execution } = await resolveMessage(handlers, routeResult, userId, text);
+    const responseText = result?.message || 'Something went wrong. Try again.';
 
-    // Send response
-    if (result.message) {
-      // Simple Telegram API call
-      const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
-      await fetch(telegramUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: result.message,
-          parse_mode: 'Markdown'
-        })
-      });
-      
-      // Log outgoing
-      await auditLogger.logOutgoing(userId, messageId, result.message, routeResult.intent);
-    }
+    await sendTelegramMessage(chatId, responseText);
 
-    res.json({ ok: true });
+    await auditLogger.logAction(
+      userId,
+      routeResult.intent,
+      {
+        source: execution.source,
+        handler: execution.handler,
+        action: execution.action,
+        params: routeResult.params,
+        success: result?.success ?? false
+      },
+      result?.success ? 'success' : 'failed'
+    );
+
+    await auditLogger.logOutgoing(userId, messageId, responseText, routeResult.intent);
+
+    return res.json({ ok: true });
   } catch (error) {
-    console.error('❌ Pipeline error:', error);
-    res.json({ ok: false, error: error.message });
+    console.error('Pipeline error:', error);
+
+    try {
+      await auditLogger.logError(userId, 'telegram.webhook', error);
+    } catch (logError) {
+      console.error('Failed to record webhook error:', logError);
+    }
+
+    return res.json({ ok: false, error: error.message });
   }
 });
 
-// Start server
 app.listen(config.port, () => {
   console.log(`CINDY running on port ${config.port}`);
 });

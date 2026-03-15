@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
-import { ContextEngine } from '../src/core/context.js';
-import { ApprovalQueue } from '../src/core/approval.js';
-import { MemoryManager } from '../src/core/memory.js';
+import { ContextEngine } from '../../src/core/context.js';
+import { ApprovalQueue } from '../../src/core/approval.js';
+import { MemoryManager } from '../../src/core/memory.js';
 
 describe('ContextEngine', () => {
   let context;

@@ -28,6 +28,26 @@ function toCamelCase(obj) {
   return result;
 }
 
+function normalizeOrderBy(orderBy) {
+  if (!orderBy) return [];
+
+  if (Array.isArray(orderBy)) {
+    return orderBy.flatMap(normalizeOrderBy);
+  }
+
+  if (orderBy.column) {
+    return [{
+      column: orderBy.column.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`),
+      ascending: orderBy.direction !== 'desc',
+    }];
+  }
+
+  return Object.entries(orderBy).map(([column, direction]) => ({
+    column: column.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`),
+    ascending: direction !== 'desc',
+  }));
+}
+
 class StorageAdapter {
   constructor() {
     this.client = null;
@@ -117,8 +137,8 @@ class StorageAdapter {
     }
 
     if (options.orderBy) {
-      for (const [key, value] of Object.entries(options.orderBy)) {
-        query = query.order(key, { ascending: value.direction !== 'desc' });
+      for (const order of normalizeOrderBy(options.orderBy)) {
+        query = query.order(order.column, { ascending: order.ascending });
       }
     }
 

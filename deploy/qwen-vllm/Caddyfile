@@ -1,0 +1,5 @@
+{$PUBLIC_DOMAIN} {
+  tls {$ACME_EMAIL}
+
+  reverse_proxy qwen-vllm:{$PORT}
+}

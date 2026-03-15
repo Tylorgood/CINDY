@@ -9,7 +9,9 @@
     "dev": "node --watch server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "runpod:create-qwen": "node scripts/runpod/create-qwen-pod.mjs",
+    "runpod:check-qwen": "node scripts/runpod/check-qwen-pod.mjs"
   },
   "keywords": [
     "ai-agent",

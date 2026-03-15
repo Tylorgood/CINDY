@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: cindy-qwen-brain
+    runtime: docker
+    plan: standard
+    dockerfilePath: ./deploy/render-qwen/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    buildFilter:
+      paths:
+        - deploy/render-qwen/**
+    disk:
+      name: qwen-model-cache
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MODEL_REPO
+        value: Qwen/Qwen2.5-1.5B-Instruct-GGUF
+      - key: MODEL_FILE
+        value: qwen2.5-1.5b-instruct-q4_k_m.gguf
+      - key: MODEL_DIR
+        value: /var/data/models
+      - key: MODEL_PATH
+        value: /var/data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+      - key: MODEL_URL
+        value: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true
+      - key: MODEL_CONTEXT_SIZE
+        value: 3072
+      - key: MODEL_PARALLEL
+        value: 1
+      - key: LLAMA_THREADS
+        value: 1
+      - key: LLAMA_API_KEY
+        sync: false

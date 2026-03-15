@@ -6,6 +6,64 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function resolveAIProvider(env) {
+  if (env.AI_PROVIDER) return env.AI_PROVIDER;
+  if (env.OPENROUTER_API_KEY) return 'openrouter';
+  if (env.GROQ_API_KEY) return 'groq';
+  if (env.OPENAI_API_KEY) return 'openai';
+  if (env.AI_BASE_URL && env.AI_API_KEY) return 'custom';
+  return null;
+}
+
+function resolveAIKey(provider, env) {
+  if (!provider) return null;
+
+  switch (provider) {
+    case 'openrouter':
+      return env.OPENROUTER_API_KEY || env.AI_API_KEY || null;
+    case 'groq':
+      return env.GROQ_API_KEY || env.AI_API_KEY || null;
+    case 'openai':
+      return env.OPENAI_API_KEY || env.AI_API_KEY || null;
+    case 'custom':
+      return env.AI_API_KEY || env.OPENAI_API_KEY || env.OPENROUTER_API_KEY || env.GROQ_API_KEY || null;
+    default:
+      return env.AI_API_KEY || null;
+  }
+}
+
+function resolveAIBaseUrl(provider, env) {
+  if (env.AI_BASE_URL) return env.AI_BASE_URL;
+
+  switch (provider) {
+    case 'openrouter':
+      return 'https://openrouter.ai/api/v1';
+    case 'groq':
+      return 'https://api.groq.com/openai/v1';
+    default:
+      return null;
+  }
+}
+
+function resolveAIModel(provider, env) {
+  if (env.AI_MODEL) return env.AI_MODEL;
+
+  switch (provider) {
+    case 'openrouter':
+      return env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct:free';
+    case 'groq':
+      return env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    case 'openai':
+      return env.OPENAI_MODEL || 'gpt-4o-mini';
+    case 'custom':
+      return env.CUSTOM_MODEL || 'llama-3.1-8b-instruct';
+    default:
+      return null;
+  }
+}
+
+const aiProvider = resolveAIProvider(process.env);
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 3000,
@@ -13,7 +71,7 @@ const config = {
 
   supabase: {
     url: process.env.SUPABASE_URL,
-    key: process.env.SUPABASE_KEY,
+    key: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY,
   },
 
   google: {
@@ -49,6 +107,19 @@ const config = {
 
   groq: {
     apiKey: process.env.GROQ_API_KEY,
+  },
+
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY,
+  },
+
+  ai: {
+    provider: aiProvider,
+    apiKey: resolveAIKey(aiProvider, process.env),
+    baseUrl: resolveAIBaseUrl(aiProvider, process.env),
+    model: resolveAIModel(aiProvider, process.env),
+    referer: process.env.OPENROUTER_SITE_URL || process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || null,
+    title: process.env.OPENROUTER_APP_NAME || process.env.AI_APP_NAME || process.env.AGENT_NAME || 'CINDY',
   },
 
   opencode: {
