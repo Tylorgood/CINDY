@@ -21,18 +21,18 @@ export class HelpHandler {
     };
   }
 
-  /**
-   * Suggest commands when user input is unknown
-   */
-  suggest(params = {}) {
-    const { originalText } = params;
-    
-    return {
-      success: true,
-      message: `I didn't understand "${originalText}"\n\n${this.intentRouter.getHelpText()}`,
-      data: null
-    };
-  }
+/**
+ * Suggest commands when user input is unknown
+ */
+suggest(params = {}) {
+  const { originalText } = params;
+  
+  return {
+    success: false, // Signal that this wasn't understood
+    message: `I didn't understand "${originalText}"\n\n${this.intentRouter.getHelpText()}`,
+    data: null
+  };
+}
 }
 
 export default HelpHandler;

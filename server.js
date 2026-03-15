@@ -79,20 +79,23 @@ app.post('/telegram/webhook', async (req, res) => {
     // Route intent
     const routeResult = intentRouter.route(text);
     
+    console.log(`📋 Intent: ${routeResult.intent}, confidence: ${routeResult.confidence}`);
+    
     let result;
     
-    // If confidence is low and AI is available, try AI chat
-    if (routeResult.confidence === 0 && openai) {
+    // If intent is unknown OR confidence is low and AI is available, try AI chat
+    if ((routeResult.intent === 'unknown' || routeResult.confidence < 0.5) && openai) {
       console.log('🤖 Using AI...');
       result = await handlers.chatWithAI(userId, text);
       
-      // If AI failed, fall back to help
-      if (!result.success) {
+      // If AI failed or returned empty, fall back to help
+      if (!result?.success || !result?.message) {
+        console.log('🤖 AI failed, using help');
         result = await handlers.execute('help', 'suggest', userId, { originalText: text });
       }
     } else {
       // Use structured handlers
-      console.log(`🎯 ${routeResult.intent}`);
+      console.log(`🎯 Using handler: ${routeResult.handler}.${routeResult.action}`);
       result = await handlers.execute(
         routeResult.handler,
         routeResult.action,
