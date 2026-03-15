@@ -8,16 +8,20 @@ import { TasksHandler } from './tasks.js';
 import { ProjectsHandler } from './projects.js';
 import { ProfileHandler } from './profile.js';
 import { HelpHandler } from './help.js';
+import { AIHandler } from './ai.js';
 
 export class HandlerRegistry {
-  constructor(storageAdapter, intentRouter) {
+  constructor(storageAdapter, intentRouter, openai = null) {
     this.handlers = {
       memory: new MemoryHandler(storageAdapter),
       tasks: new TasksHandler(storageAdapter),
       projects: new ProjectsHandler(storageAdapter),
       profile: new ProfileHandler(storageAdapter),
-      help: new HelpHandler(intentRouter)
+      help: new HelpHandler(intentRouter),
+      ai: new AIHandler(openai, storageAdapter)
     };
+    
+    this.aiHandler = this.handlers.ai;
   }
 
   /**
@@ -25,6 +29,13 @@ export class HandlerRegistry {
    */
   get(name) {
     return this.handlers[name];
+  }
+
+  /**
+   * Check if AI is available
+   */
+  hasAI() {
+    return this.aiHandler?.isConfigured() || false;
   }
 
   /**
@@ -47,6 +58,17 @@ export class HandlerRegistry {
       console.error(`Handler error: ${handlerName}.${action}`, error);
       return { success: false, message: 'Something went wrong. Try again.' };
     }
+  }
+
+  /**
+   * Use AI for chat (enhanced with user context)
+   */
+  async chatWithAI(userId, message) {
+    if (!this.aiHandler?.isConfigured()) {
+      return { success: false, message: "AI not configured" };
+    }
+    
+    return await this.aiHandler.chatWithContext(userId, message);
   }
 }
 

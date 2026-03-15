@@ -43,6 +43,10 @@ const config = {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
   },
 
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY,
+  },
+
   opencode: {
     apiKey: process.env.OPENCODE_API_KEY,
   },
