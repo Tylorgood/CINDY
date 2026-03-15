@@ -104,6 +104,16 @@ const auditLogger = new AuditLogger(storageWrapper);
 
 console.log('✓ Pipeline initialized');
 
+// Root route
+app.get('/', (req, res) => {
+  res.send('CINDY is running! 🤖');
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', ai: !!openai, storage: !!storageWrapper });
+});
+
 // Telegram webhook - full pipeline
 app.post('/telegram/webhook', async (req, res) => {
   try {
