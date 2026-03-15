@@ -85,12 +85,13 @@ app.post('/memory', async (req, res) => {
       return res.status(500).json({ error: 'Storage not configured' });
     }
     
+    // Use snake_case for Supabase
     const memory = {
       id: crypto.randomUUID(),
-      userId,
+      user_id: userId,
       type: type || 'test',
       data: data || {},
-      createdAt: new Date().toISOString()
+      created_at: new Date().toISOString()
     };
     
     const result = await storageAdapter.from('memories').insert(memory).select().single();
@@ -114,7 +115,7 @@ app.get('/memory/:type', async (req, res) => {
     const { data, error } = await storageAdapter
       .from('memories')
       .select('*')
-      .eq('userId', userId)
+      .eq('user_id', userId)
       .eq('type', type)
       .limit(20);
     
