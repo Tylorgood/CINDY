@@ -106,13 +106,46 @@ app.post('/telegram/webhook', async (req, res) => {
     }
 
     const chatId = message.chat.id;
-    const text = message.text;
+    const text = message.text.trim().toLowerCase();
     const userId = message.from?.username || message.from?.first_name || 'telegram-user';
 
     console.log(`Telegram message from ${userId}: ${text}`);
 
-    // For now, just echo back and explain
-    const response = `I received: "${text}". This is the Personal Agent. For now, you can:\n- Store a memory: /memory [type] [content]\n- Get help: /help`;
+    // Simple response logic
+    let response = "";
+    
+    if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
+      response = "Hey! I'm CINDY, your personal assistant. You can:\n• Store a memory: 'remember that I like coffee'\n• Get notifications: 'send me a reminder'\n• Check my memory: 'what do you know about me?'\n• Send an alert: 'text me'";
+    } 
+    else if (text.includes('remember') || text.includes('remember that')) {
+      // Extract what to remember
+      const memory = text.replace(/remember that/i, '').trim();
+      await personalAgent.storeMemory('fact', { fact: memory }, { userId });
+      response = `Got it! I'll remember: "${memory}"`;
+    }
+    else if (text.includes('what do you know') || text.includes('what do you remember')) {
+      const memories = await personalAgent.getMemory('fact', { userId }, { limit: 5 });
+      if (memories.length > 0) {
+        response = "Here's what I remember about you:\n" + memories.map(m => `• ${m.data.fact}`).join('\n');
+      } else {
+        response = "I don't know much about you yet! Tell me something to remember.";
+      }
+    }
+    else if (text.includes('send') && (text.includes('reminder') || text.includes('text') || text.includes('notification'))) {
+      // Send a Pushover notification
+      if (personalAgent.adapters.pushover) {
+        await personalAgent.adapters.pushover.send({ message: 'Test from Telegram!', title: 'CINDY' });
+        response = "Notification sent to your phone!";
+      } else {
+        response = "Pushover not configured yet.";
+      }
+    }
+    else if (text.includes('help')) {
+      response = "Commands I understand:\n• 'remember [something]' - store a memory\n• 'what do you know?' - recall memories\n• 'send me a notification' - test alerts\n• 'hello' - get help";
+    }
+    else {
+      response = "I'm still learning! Try:\n• 'hello' - to start\n• 'remember that I like pizza'\n• 'what do you know about me?'\n• 'send me a notification'";
+    }
     
     if (personalAgent.adapters.telegram) {
       await personalAgent.adapters.telegram.sendMessage(chatId, response);
