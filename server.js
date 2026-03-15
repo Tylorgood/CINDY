@@ -11,9 +11,15 @@ app.use(express.json());
 // Initialize Supabase
 const supabaseUrl = config.supabase?.url;
 const supabaseKey = config.supabase?.key;
+
+console.log('📦 Supabase URL:', supabaseUrl ? 'present' : 'missing');
+console.log('📦 Supabase Key:', supabaseKey ? 'present' : 'missing');
+
 const storageAdapter = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
+
+console.log('📦 Storage adapter:', storageAdapter ? 'ready' : 'NOT configured');
 
 // Initialize AI (prefer Groq, fallback to OpenAI)
 let openai = null;
@@ -68,6 +74,56 @@ app.get('/health', (req, res) => {
       telegram: !!config.telegram?.botToken
     }
   });
+});
+
+// Test memory endpoint
+app.post('/memory', async (req, res) => {
+  try {
+    const { type, data, userId = 'default-user' } = req.body;
+    
+    if (!storageAdapter) {
+      return res.status(500).json({ error: 'Storage not configured' });
+    }
+    
+    const memory = {
+      id: crypto.randomUUID(),
+      userId,
+      type: type || 'test',
+      data: data || {},
+      createdAt: new Date().toISOString()
+    };
+    
+    const result = await storageAdapter.from('memories').insert(memory).select().single();
+    
+    res.json(result.data || result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get memories
+app.get('/memory/:type', async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { userId = 'default-user' } = req.query;
+    
+    if (!storageAdapter) {
+      return res.status(500).json({ error: 'Storage not configured' });
+    }
+    
+    const { data, error } = await storageAdapter
+      .from('memories')
+      .select('*')
+      .eq('userId', userId)
+      .eq('type', type)
+      .limit(20);
+    
+    if (error) throw error;
+    
+    res.json({ memories: data || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Debug AI endpoint
