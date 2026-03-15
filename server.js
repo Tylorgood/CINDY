@@ -143,26 +143,36 @@ app.post('/telegram/webhook', async (req, res) => {
       console.log('🤖 Calling Groq...');
       try {
         const aiResult = await handlers.chatWithAI(userId, text);
-        console.log('🤖 Got:', aiResult?.message?.substring(0, 50));
+        console.log('🤖 AI result:', aiResult?.success, aiResult?.message?.substring(0, 30));
         
         if (aiResult?.success && aiResult?.message) {
           responseText = aiResult.message;
+        } else {
+          console.log('🤖 AI returned no message');
         }
       } catch (e) {
-        console.log('🤖 Error:', e.message);
+        console.log('🤖 AI Error:', e.message);
       }
+    } else {
+      console.log('🤖 No AI configured');
     }
     
     // If no AI response, use handlers
     if (!responseText) {
-      console.log('🎯 Handler:', routeResult.handler);
-      const result = await handlers.execute(
-        routeResult.handler,
-        routeResult.action,
-        userId,
-        routeResult.params
-      );
-      responseText = result?.message || 'Something went wrong';
+      console.log('🎯 Handler:', routeResult.handler, routeResult.action);
+      try {
+        const result = await handlers.execute(
+          routeResult.handler,
+          routeResult.action,
+          userId,
+          routeResult.params
+        );
+        responseText = result?.message || 'No response';
+        console.log('📤 Handler result:', responseText?.substring(0, 50));
+      } catch (e) {
+        console.log('❌ Handler error:', e.message);
+        responseText = 'Error: ' + e.message;
+      }
     }
     
     // Send response
