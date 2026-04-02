@@ -4,6 +4,7 @@ import { CodexDesk } from '../../src/core/codexDesk.js';
 import CindyRuntime from '../../src/core/runtime.js';
 import approvalQueue from '../../src/core/approval.js';
 import { ContactStore } from '../../src/core/contacts.js';
+import googleAuthClient from '../../src/adapters/gmail/client.js';
 
 describe('ActionPlanner', () => {
   test('falls back to answer mode when no AI client is configured', async () => {
@@ -129,6 +130,36 @@ describe('CindyRuntime outbound approvals', () => {
       skipApproval: true,
     }));
     expect(runtime.contacts.touch).toHaveBeenCalledWith('contact-1');
+  });
+
+  test('starts a multi-turn email compose flow when recipient is missing', async () => {
+    const runtime = new CindyRuntime({ storage: null, openai: null, aiConfig: {} });
+    runtime.adapters.gmail = { sendMessage: jest.fn() };
+    jest.spyOn(googleAuthClient, 'isAuthenticated').mockResolvedValue(true);
+    runtime.executeAction = jest.fn().mockResolvedValue({
+      success: true,
+      message: 'Sent an email to tylorgood91@yahoo.com.',
+    });
+
+    const first = await runtime.executeOutboundAction('user-123', 'email.send', {});
+    expect(first.success).toBe(true);
+    expect(first.message).toContain('Who should I email?');
+
+    const second = await runtime.processMessage('user-123', 'tylorgood91@yahoo.com');
+    expect(second.success).toBe(true);
+    expect(second.message).toContain('What should the email say?');
+
+    const third = await runtime.processMessage('user-123', 'hey i think you are cool');
+    expect(third.success).toBe(true);
+    expect(third.message).toContain('Reply "send it"');
+
+    const fourth = await runtime.processMessage('user-123', 'send it');
+    expect(fourth.success).toBe(true);
+    expect(runtime.executeAction).toHaveBeenCalledWith('user-123', 'email.send', {
+      to: 'tylorgood91@yahoo.com',
+      subject: 'Message from user-123',
+      body: 'hey i think you are cool',
+    }, {});
   });
 });
 

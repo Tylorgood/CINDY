@@ -51,8 +51,21 @@ export class CindyRuntime {
     this.contacts = new ContactStore(storage);
     this.codexDesk = new CodexDesk(openai, storage, aiConfig);
     this.planner = new ActionPlanner(openai, aiConfig);
+    this.pendingOperations = new Map();
     this.adapters = this.initializeAdapters();
     this.orchestrator = new Orchestrator(this.adapters);
+  }
+
+  getPendingOperation(userId) {
+    return this.pendingOperations.get(userId) || null;
+  }
+
+  setPendingOperation(userId, operation) {
+    this.pendingOperations.set(userId, operation);
+  }
+
+  clearPendingOperation(userId) {
+    this.pendingOperations.delete(userId);
   }
 
   initializeAdapters() {
@@ -143,6 +156,11 @@ export class CindyRuntime {
       return await this.handlers.execute(route.handler, route.action, userId, route.params);
     }
 
+    const pending = this.getPendingOperation(userId);
+    if (pending) {
+      return await this.handlePendingOperation(userId, text, pending);
+    }
+
     const plan = await this.planner.plan(text, {
       adapters: this.getAdapters(),
       currentDate: new Date().toISOString(),
@@ -156,6 +174,85 @@ export class CindyRuntime {
       return { success: true, message: plan.reply };
     }
 
+    return await this.handlers.chatWithAI(userId, text);
+  }
+
+  async handlePendingOperation(userId, text, pending) {
+    if (pending.kind !== 'email-compose') {
+      this.clearPendingOperation(userId);
+      return await this.handlers.chatWithAI(userId, text);
+    }
+
+    const trimmed = String(text || '').trim();
+    if (!trimmed) {
+      return { success: false, message: 'I still need a bit more detail to continue that email.' };
+    }
+
+    if (pending.step === 'awaiting_recipient') {
+      const emailMatch = trimmed.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+      const recipient = emailMatch ? emailMatch[0] : trimmed;
+      this.setPendingOperation(userId, {
+        ...pending,
+        to: recipient,
+        step: 'awaiting_body',
+      });
+      return {
+        success: true,
+        message: `Who should I email is set to "${recipient}". What should the email say?`,
+      };
+    }
+
+    if (pending.step === 'awaiting_body') {
+      const subject = pending.subject || `Message from ${userId}`;
+      const next = {
+        ...pending,
+        subject,
+        body: trimmed,
+        step: 'awaiting_confirm',
+      };
+      this.setPendingOperation(userId, next);
+      return {
+        success: true,
+        message: [
+          `Ready to ${pending.actionType === 'email.send' ? 'send' : 'draft'} this email:`,
+          `To: ${next.to}`,
+          `Subject: ${subject}`,
+          '',
+          next.body,
+          '',
+          `Reply "send it" to continue, or send a replacement message body.`,
+        ].join('\n'),
+      };
+    }
+
+    if (pending.step === 'awaiting_confirm') {
+      if (/^(?:send|send it|yes|approve|go ahead)$/i.test(trimmed)) {
+        this.clearPendingOperation(userId);
+        return await this.executeAction(userId, pending.actionType, {
+          to: pending.to,
+          subject: pending.subject,
+          body: pending.body,
+        }, {});
+      }
+
+      this.setPendingOperation(userId, {
+        ...pending,
+        body: trimmed,
+      });
+      return {
+        success: true,
+        message: [
+          `Updated the draft for ${pending.to}.`,
+          `Subject: ${pending.subject}`,
+          '',
+          trimmed,
+          '',
+          'Reply "send it" when you want me to continue.',
+        ].join('\n'),
+      };
+    }
+
+    this.clearPendingOperation(userId);
     return await this.handlers.chatWithAI(userId, text);
   }
 
@@ -386,13 +483,48 @@ export class CindyRuntime {
         ? 'sms'
         : 'voice';
 
+    if ((actionType === 'email.draft' || actionType === 'email.send') && !this.adapters.gmail) {
+      return await this.connectGoogle(userId);
+    }
+
+    if ((actionType === 'email.draft' || actionType === 'email.send')
+      && !(await googleAuthClient.isAuthenticated(userId))) {
+      const connect = await this.connectGoogle(userId);
+      return {
+        success: false,
+        message: `Google is not connected yet.\n\n${connect.message}`,
+      };
+    }
+
+    if ((actionType === 'email.draft' || actionType === 'email.send') && !payload.to) {
+      this.setPendingOperation(userId, {
+        kind: 'email-compose',
+        actionType,
+        step: 'awaiting_recipient',
+      });
+      return {
+        success: true,
+        message: 'Who should I email? Reply with an email address or contact name.',
+      };
+    }
+
+    if ((actionType === 'email.draft' || actionType === 'email.send') && !payload.body) {
+      this.setPendingOperation(userId, {
+        kind: 'email-compose',
+        actionType,
+        to: payload.to,
+        subject: payload.subject || `Message from ${userId}`,
+        step: 'awaiting_body',
+      });
+      return {
+        success: true,
+        message: `What should I say in the email to ${payload.to}?`,
+      };
+    }
+
     const contact = payload.to
       ? await this.contacts.resolve(userId, channel, payload.to)
       : null;
-
-    if ((actionType === 'email.send' || actionType === 'email.draft') && !payload.to && !contact) {
-      return { success: false, message: 'I need an email recipient first.' };
-    }
 
     if ((actionType === 'sms.send' || actionType === 'voice.call') && !payload.to && !contact) {
       return { success: false, message: 'I need a phone number or saved contact first.' };
@@ -456,10 +588,6 @@ export class CindyRuntime {
           },
         },
       };
-    }
-
-    if (actionType === 'email.draft' && !this.adapters.gmail) {
-      return { success: false, message: 'Google email is not configured yet.' };
     }
 
     if (actionType === 'sms.send' && !this.adapters.sms) {

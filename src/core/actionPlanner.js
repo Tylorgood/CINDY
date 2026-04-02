@@ -17,6 +17,19 @@ function extractJson(text) {
   }
 }
 
+function isMetaReply(reply) {
+  const value = String(reply || '').trim().toLowerCase();
+  if (!value) {
+    return false;
+  }
+
+  return value.includes('the user is asking')
+    || value.includes('direct answer')
+    || value.includes('tool action')
+    || value.includes('mode "answer"')
+    || value.includes('mode "action"');
+}
+
 export class ActionPlanner {
   constructor(openai, aiConfig = {}) {
     this.openai = openai;
@@ -62,7 +75,7 @@ export class ActionPlanner {
         mode: parsed.mode === 'action' ? 'action' : 'answer',
         actionType: parsed.actionType || null,
         params: parsed.params && typeof parsed.params === 'object' ? parsed.params : {},
-        reply: parsed.reply || null,
+        reply: isMetaReply(parsed.reply) ? null : (parsed.reply || null),
       };
     } catch {
       return { mode: 'answer' };
