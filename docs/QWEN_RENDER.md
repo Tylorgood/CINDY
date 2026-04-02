@@ -83,10 +83,21 @@ and add or update these environment variables:
 AI_PROVIDER=custom
 AI_BASE_URL=https://YOUR-QWEN-SERVICE.onrender.com/v1
 AI_API_KEY=THE_SAME_LLAMA_API_KEY_YOU_ENTERED_FOR_THE_QWEN_SERVICE
-AI_MODEL=/var/data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+AI_MODEL=qwen2.5-1.5b-instruct-q4_k_m.gguf
 ```
 
 Use the actual public URL of the `cindy-qwen-brain` service for `AI_BASE_URL`.
+
+If you launched the Qwen service without `LLAMA_API_KEY`, the model API is still
+reachable, but CINDY expects `AI_API_KEY` to be non-empty before it enables the
+custom provider. For a temporary test, you can use any placeholder value such as:
+
+```env
+AI_API_KEY=local-placeholder-key
+```
+
+For a proper setup, add `LLAMA_API_KEY` to the Qwen service and use the same
+value in CINDY.
 
 If both services are in the same Render workspace and region, you can later use
 the private network address instead:
@@ -102,14 +113,14 @@ AI_BASE_URL=http://cindy-qwen-brain:8000/v1
 3. Open:
 
 ```text
-https://cindy-9bti.onrender.com/health
+https://YOUR-CINDY-URL.onrender.com/health
 ```
 
 You want to see:
 
 - `ai: true`
 - `aiProvider: custom`
-- `aiModel: /var/data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf`
+- `aiModel: qwen2.5-1.5b-instruct-q4_k_m.gguf`
 
 Then test Telegram with:
 
@@ -132,7 +143,7 @@ MODEL_CONTEXT_SIZE=4096
 Then change the Render plan to `pro` and update CINDY:
 
 ```env
-AI_MODEL=/var/data/models/qwen2.5-3b-instruct-q4_k_m.gguf
+AI_MODEL=qwen2.5-3b-instruct-q4_k_m.gguf
 ```
 
 ## Troubleshooting
@@ -143,7 +154,7 @@ If the Qwen service deploys but CINDY still does not answer:
 2. Confirm `AI_PROVIDER=custom`.
 3. Confirm `AI_BASE_URL` is the Qwen service URL plus `/v1`.
 4. Confirm `AI_API_KEY` matches the Qwen service `LLAMA_API_KEY`.
-5. Confirm `AI_MODEL` matches the model path exactly.
+5. Confirm `AI_MODEL` matches the model name returned by `/v1/models`.
 
 If the Qwen service fails to download from Hugging Face, add an `HF_TOKEN`
 environment variable to the Qwen service in Render and redeploy.
