@@ -12,6 +12,20 @@ MODEL_PARALLEL="${MODEL_PARALLEL:-1}"
 LLAMA_THREADS="${LLAMA_THREADS:-1}"
 LLAMA_API_KEY="${LLAMA_API_KEY:-}"
 HF_TOKEN="${HF_TOKEN:-}"
+LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-}"
+
+if [ -z "$LLAMA_SERVER_BIN" ]; then
+  if [ -x /app/llama-server ]; then
+    LLAMA_SERVER_BIN="/app/llama-server"
+  else
+    LLAMA_SERVER_BIN="$(command -v llama-server || true)"
+  fi
+fi
+
+if [ -z "$LLAMA_SERVER_BIN" ]; then
+  echo "llama-server binary not found"
+  exit 127
+fi
 
 mkdir -p "$MODEL_DIR"
 
@@ -35,7 +49,7 @@ else
 fi
 
 set -- \
-  llama-server \
+  "$LLAMA_SERVER_BIN" \
   -m "$MODEL_PATH" \
   --host 0.0.0.0 \
   --port "$PORT" \
