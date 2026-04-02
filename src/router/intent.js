@@ -93,6 +93,138 @@ export class IntentRouter {
       action: 'complete',
       extract: (match) => ({ taskId: match[1] })
     });
+
+    this.intents.set('approve_action', {
+      patterns: [
+        /^(?:approve|yes)\s+([a-z0-9-]+)/i
+      ],
+      handler: 'runtime',
+      action: 'approve',
+      extract: match => ({ approvalId: match[1] })
+    });
+
+    this.intents.set('deny_action', {
+      patterns: [
+        /^(?:deny|reject|no)\s+([a-z0-9-]+)/i
+      ],
+      handler: 'runtime',
+      action: 'deny',
+      extract: match => ({ approvalId: match[1] })
+    });
+
+    this.intents.set('capabilities', {
+      patterns: [
+        /^(?:capabilities|what can you do|what do you have access to)/i
+      ],
+      handler: 'runtime',
+      action: 'capabilities'
+    });
+
+    this.intents.set('connect_google', {
+      patterns: [
+        /^(?:connect|link)\s+google/i
+      ],
+      handler: 'runtime',
+      action: 'connectGoogle'
+    });
+
+    this.intents.set('show_inbox', {
+      patterns: [
+        /^(?:show|list|check)\s+(?:my\s+)?inbox/i,
+        /^(?:inbox)$/i
+      ],
+      handler: 'runtime',
+      action: 'inbox'
+    });
+
+    this.intents.set('summarize_inbox', {
+      patterns: [
+        /^(?:summarize|summary of)\s+(?:my\s+)?inbox/i,
+        /^(?:what(?:'s| is)\s+my\s+inbox\s+about)/i
+      ],
+      handler: 'runtime',
+      action: 'summarizeInbox'
+    });
+
+    this.intents.set('calendar_today', {
+      patterns: [
+        /^(?:calendar\s+today|what(?:'s| is)\s+on\s+my\s+calendar(?:\s+today)?)/i
+      ],
+      handler: 'runtime',
+      action: 'calendarToday'
+    });
+
+    this.intents.set('schedule_event', {
+      patterns: [
+        /^(?:schedule|add calendar event)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'scheduleEvent',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('text_message', {
+      patterns: [
+        /^(?:text|sms)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'textMessage',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('call_contact', {
+      patterns: [
+        /^(?:call|phone)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'callContact',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('draft_email', {
+      patterns: [
+        /^(?:draft(?:\s+an?)?\s+email(?:\s+to)?|draft a reply to)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'draftEmail',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('send_email', {
+      patterns: [
+        /^(?:send(?:\s+an?)?\s+email(?:\s+to)?)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'sendEmail',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('codex_prompt', {
+      patterns: [
+        /^(?:codex\s+prompt|codex\s+brief)\s*:?[\s]+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'codexPrompt',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('codex_repo_brief', {
+      patterns: [
+        /^(?:codex\s+brief\s+for\s+repo)\s+([^\s]+)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'codexRepoBrief',
+      extract: match => ({ repo: match[1], request: match[2] })
+    });
+
+    this.intents.set('codex_refine', {
+      patterns: [
+        /^(?:refine\s+that\s+codex\s+prompt|refine\s+my\s+codex\s+brief)\s*:?[\s]*(.*)/i
+      ],
+      handler: 'runtime',
+      action: 'codexRefine',
+      extract: match => ({ request: match[1] })
+    });
   }
 
   /**
@@ -149,7 +281,25 @@ About You
 
 Help
 "help"
-"what can you do"`;
+"what can you do"
+
+Ops
+"connect google"
+"show my inbox"
+"summarize inbox"
+"calendar today"
+"schedule team sync tomorrow at 3pm"
+"text Sarah that I'm running late"
+"call Jeff"
+
+Codex
+"codex prompt: add approval buttons to Telegram"
+"codex brief for repo CINDY fix the Google auth flow"
+"refine that codex prompt to include tests"
+
+Approvals
+"approve <id>"
+"deny <id>"`;
   }
 }
 

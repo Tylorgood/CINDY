@@ -115,7 +115,7 @@ describe('ApprovalQueue', () => {
       userId: 'user-456',
     });
 
-    const pending = approval.listPending('user-123');
+    const pending = await approval.listPending('user-123');
     expect(pending.length).toBe(1);
   });
 });

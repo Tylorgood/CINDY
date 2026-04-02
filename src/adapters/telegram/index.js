@@ -14,17 +14,42 @@ class TelegramAdapter {
     const payload = {
       chat_id: chatId,
       text: text,
-      parse_mode: 'Markdown',
     };
 
     if (options.replyToMessageId) {
       payload.reply_to_message_id = options.replyToMessageId;
     }
 
+    if (options.replyMarkup) {
+      payload.reply_markup = options.replyMarkup;
+    }
+
     const response = await fetch(`${this.apiUrl}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(`Telegram error: ${result.description}`);
+    }
+
+    return result.result;
+  }
+
+  async answerCallbackQuery(callbackQueryId, text = '') {
+    if (!this.apiUrl) {
+      throw new Error('Telegram not configured');
+    }
+
+    const response = await fetch(`${this.apiUrl}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text,
+      }),
     });
 
     const result = await response.json();

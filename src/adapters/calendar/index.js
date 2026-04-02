@@ -1,13 +1,13 @@
 import { adapterConfigs } from '../../../config/adapters.js';
 
 class CalendarAdapter {
-  constructor(googleClient) {
-    this.client = googleClient;
+  constructor(authClient) {
+    this.auth = authClient;
     this.config = adapterConfigs.calendar;
     this.calendarId = 'primary';
   }
 
-  async listEvents(options = {}) {
+  async listEvents(userId, options = {}) {
     const { 
       timeMin, 
       timeMax, 
@@ -37,21 +37,29 @@ class CalendarAdapter {
       params.q = q;
     }
 
-    const response = await this.client.events.list(params);
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      query.set(key, String(value));
+    }
 
-    return (response.data.items || []).map(this.parseEvent.bind(this));
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(this.calendarId)}/events?${query.toString()}`
+    );
+
+    return (response.items || []).map(this.parseEvent.bind(this));
   }
 
-  async getEvent(eventId) {
-    const response = await this.client.events.get({
-      calendarId: this.calendarId,
-      eventId,
-    });
+  async getEvent(userId, eventId) {
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(this.calendarId)}/events/${eventId}`
+    );
 
-    return this.parseEvent(response.data);
+    return this.parseEvent(response);
   }
 
-  async createEvent(event) {
+  async createEvent(userId, event) {
     const { title, description, location, start, end, attendees, reminders } = event;
 
     const resource = {
@@ -76,16 +84,20 @@ class CalendarAdapter {
       };
     }
 
-    const response = await this.client.events.insert({
-      calendarId: this.calendarId,
-      resource,
-      sendUpdates: 'all',
-    });
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(this.calendarId)}/events?sendUpdates=all`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resource),
+      }
+    );
 
-    return this.parseEvent(response.data);
+    return this.parseEvent(response);
   }
 
-  async updateEvent(eventId, updates) {
+  async updateEvent(userId, eventId, updates) {
     const resource = {};
     
     if (updates.title) resource.summary = updates.title;
@@ -94,22 +106,25 @@ class CalendarAdapter {
     if (updates.start) resource.start = this.formatDateTime(updates.start);
     if (updates.end) resource.end = this.formatDateTime(updates.end);
 
-    const response = await this.client.events.patch({
-      calendarId: this.calendarId,
-      eventId,
-      resource,
-      sendUpdates: 'all',
-    });
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(this.calendarId)}/events/${eventId}?sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resource),
+      }
+    );
 
-    return this.parseEvent(response.data);
+    return this.parseEvent(response);
   }
 
-  async deleteEvent(eventId) {
-    await this.client.events.delete({
-      calendarId: this.calendarId,
-      eventId,
-      sendUpdates: 'all',
-    });
+  async deleteEvent(userId, eventId) {
+    await this.auth.fetchJson(
+      userId,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(this.calendarId)}/events/${eventId}?sendUpdates=all`,
+      { method: 'DELETE' }
+    );
 
     return { deleted: true };
   }
@@ -151,25 +166,25 @@ class CalendarAdapter {
     return { dateTime: dateInput, timeZone: 'UTC' };
   }
 
-  async getTodayEvents() {
+  async getTodayEvents(userId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    return await this.listEvents({
+    return await this.listEvents(userId, {
       timeMin: today.toISOString(),
       timeMax: tomorrow.toISOString(),
     });
   }
 
-  async getUpcomingEvents(days = 7) {
+  async getUpcomingEvents(userId, days = 7) {
     const now = new Date();
     const future = new Date();
     future.setDate(future.getDate() + days);
 
-    return await this.listEvents({
+    return await this.listEvents(userId, {
       timeMin: now.toISOString(),
       timeMax: future.toISOString(),
     });

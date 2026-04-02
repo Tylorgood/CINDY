@@ -22,6 +22,7 @@ class Orchestrator {
     this.actionHandlers.set('voice.call', this.handleVoiceCall.bind(this));
     this.actionHandlers.set('task.create', this.handleTaskCreate.bind(this));
     this.actionHandlers.set('calendar.read', this.handleCalendarRead.bind(this));
+    this.actionHandlers.set('calendar.create', this.handleCalendarCreate.bind(this));
   }
 
   registerHandler(actionType, handler) {
@@ -122,7 +123,7 @@ class Orchestrator {
     }
 
     const { maxResults } = payload;
-    return await gmailAdapter.listMessages({ maxResults: maxResults || 20 });
+    return await gmailAdapter.listMessages(userId, { maxResults: maxResults || 20 });
   }
 
   async handleEmailSummarize(payload, userId) {
@@ -132,7 +133,7 @@ class Orchestrator {
     }
 
     const { messageId } = payload;
-    const message = await gmailAdapter.getMessage(messageId);
+    const message = await gmailAdapter.getMessage(userId, messageId);
     
     return {
       id: message.id,
@@ -158,7 +159,7 @@ class Orchestrator {
     }
 
     const { to, subject, body } = payload;
-    return await gmailAdapter.createDraft({ to, subject, body });
+    return await gmailAdapter.createDraft(userId, { to, subject, body });
   }
 
   async handleEmailSend(payload, userId) {
@@ -168,7 +169,7 @@ class Orchestrator {
     }
 
     const { to, subject, body } = payload;
-    return await gmailAdapter.sendMessage({ to, subject, body });
+    return await gmailAdapter.sendMessage(userId, { to, subject, body });
   }
 
   async handleSmsSend(payload, userId) {
@@ -223,8 +224,24 @@ class Orchestrator {
       throw new Error('Calendar adapter not configured');
     }
 
-    const { startDate, endDate } = payload;
-    return await calendarAdapter.listEvents({ startDate, endDate });
+    const { startDate, endDate, scope } = payload;
+    if (scope === 'today') {
+      return await calendarAdapter.getTodayEvents(userId);
+    }
+
+    return await calendarAdapter.listEvents(userId, {
+      timeMin: startDate,
+      timeMax: endDate,
+    });
+  }
+
+  async handleCalendarCreate(payload, userId) {
+    const calendarAdapter = this.adapters.calendar;
+    if (!calendarAdapter) {
+      throw new Error('Calendar adapter not configured');
+    }
+
+    return await calendarAdapter.createEvent(userId, payload);
   }
 
   getCapabilities() {

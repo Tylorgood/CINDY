@@ -1,32 +1,38 @@
 import { adapterConfigs } from '../../../config/adapters.js';
 
 class GmailAdapter {
-  constructor(googleClient) {
-    this.client = googleClient;
+  constructor(authClient) {
+    this.auth = authClient;
     this.config = adapterConfigs.gmail;
   }
 
-  async listMessages(options = {}) {
+  async listMessages(userId, options = {}) {
     const { maxResults = 20, labelIds = ['INBOX'], q } = options;
-    
-    const response = await this.client.users.messages.list({
-      userId: 'me',
-      maxResults,
-      labelIds,
-      q,
+
+    const params = new URLSearchParams({
+      maxResults: String(maxResults),
     });
 
-    return response.data.messages || [];
+    labelIds.forEach(labelId => params.append('labelIds', labelId));
+    if (q) {
+      params.set('q', q);
+    }
+
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`
+    );
+
+    return response.messages || [];
   }
 
-  async getMessage(messageId, format = 'full') {
-    const response = await this.client.users.messages.get({
-      userId: 'me',
-      id: messageId,
-      format,
-    });
+  async getMessage(userId, messageId, format = 'full') {
+    const response = await this.auth.fetchJson(
+      userId,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=${format}`
+    );
 
-    return this.parseMessage(response.data);
+    return this.parseMessage(response);
   }
 
   parseMessage(message) {
@@ -49,36 +55,46 @@ class GmailAdapter {
     };
   }
 
-  async createDraft(options) {
+  async createDraft(userId, options) {
     const { to, subject, body, cc, bcc } = options;
 
     const message = this.createMimeMessage({ to, subject, body, cc, bcc });
 
-    const response = await this.client.users.drafts.create({
-      userId: 'me',
-      resource: {
-        message: {
-          raw: Buffer.from(message).toString('base64url'),
-        },
-      },
-    });
+    const response = await this.auth.fetchJson(
+      userId,
+      'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: {
+            raw: Buffer.from(message).toString('base64url'),
+          },
+        }),
+      }
+    );
 
-    return { draftId: response.data.id };
+    return { draftId: response.id, message: 'Draft created.' };
   }
 
-  async sendMessage(options) {
+  async sendMessage(userId, options) {
     const { to, subject, body, cc, bcc } = options;
 
     const message = this.createMimeMessage({ to, subject, body, cc, bcc });
 
-    const response = await this.client.users.messages.send({
-      userId: 'me',
-      resource: {
-        raw: Buffer.from(message).toString('base64url'),
-      },
-    });
+    const response = await this.auth.fetchJson(
+      userId,
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          raw: Buffer.from(message).toString('base64url'),
+        }),
+      }
+    );
 
-    return { messageId: response.data.id };
+    return { messageId: response.id };
   }
 
   createMimeMessage({ to, subject, body, cc, bcc }) {
@@ -93,26 +109,29 @@ class GmailAdapter {
     return lines.filter(Boolean).join('\r\n');
   }
 
-  async modifyMessage(messageId, options) {
+  async modifyMessage(userId, messageId, options) {
     const { addLabelIds, removeLabelIds } = options;
 
-    const response = await this.client.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      resource: {
-        addLabelIds,
-        removeLabelIds,
-      },
-    });
-
-    return response.data;
+    return await this.auth.fetchJson(
+      userId,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          addLabelIds,
+          removeLabelIds,
+        }),
+      }
+    );
   }
 
-  async deleteMessage(messageId) {
-    await this.client.users.messages.delete({
-      userId: 'me',
-      id: messageId,
-    });
+  async deleteMessage(userId, messageId) {
+    await this.auth.fetchJson(
+      userId,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`,
+      { method: 'DELETE' }
+    );
 
     return { deleted: true };
   }

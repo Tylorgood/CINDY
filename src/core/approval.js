@@ -3,29 +3,101 @@ import config from '../../config/index.js';
 import { defaults } from '../../config/defaults.js';
 import context from './context.js';
 import auditLogger from '../audit/logger.js';
+import storageAdapter from '../adapters/storage/index.js';
 
 const approvalConfig = defaults?.approval || { timeout: 30 * 60 * 1000 };
+
+function isRecoverableStorageError(error) {
+  return /Could not find the table|fetch failed|network/i.test(error?.message || '');
+}
 
 class ApprovalQueue {
   constructor() {
     this.pending = new Map();
     this.completed = new Map();
+    this.storage = storageAdapter.isInitialized() ? storageAdapter : null;
+  }
+
+  hydrate(record) {
+    if (!record) {
+      return null;
+    }
+
+    return {
+      id: record.id,
+      userId: record.userId,
+      action: {
+        type: record.actionType,
+        payload: record.payload || {},
+        meta: record.meta || {},
+      },
+      trustLevel: record.trustLevel,
+      status: record.status,
+      description: record.description,
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+      approvedAt: record.approvedAt,
+      deniedAt: record.deniedAt,
+      denialReason: record.denialReason,
+      completedAt: record.completedAt,
+    };
+  }
+
+  async storeApprovalRecord(approval) {
+    if (!this.storage) {
+      return;
+    }
+
+    try {
+      const record = {
+        id: approval.id,
+        userId: approval.userId,
+        actionType: approval.action.type,
+        payload: approval.action.payload || {},
+        meta: approval.action.meta || {},
+        trustLevel: approval.trustLevel,
+        status: approval.status,
+        description: approval.description,
+        createdAt: approval.createdAt,
+        expiresAt: approval.expiresAt,
+        approvedAt: approval.approvedAt || null,
+        deniedAt: approval.deniedAt || null,
+        denialReason: approval.denialReason || null,
+        completedAt: approval.completedAt || null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const existing = await this.storage.get('approvals', approval.id);
+      if (existing) {
+        await this.storage.update('approvals', approval.id, record);
+      } else {
+        await this.storage.create('approvals', record);
+      }
+    } catch (error) {
+      if (isRecoverableStorageError(error)) {
+        this.storage = null;
+        return;
+      }
+      throw error;
+    }
   }
 
   async enqueue(approvalRequest) {
-    const { action, trustLevel, userId } = approvalRequest;
+    const { action, trustLevel, userId, description = null } = approvalRequest;
 
     const approval = {
       id: uuidv4(),
       userId,
       action,
       trustLevel,
+      description: description || this.getActionDescription(action),
       status: 'pending',
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + approvalConfig.timeout).toISOString(),
     };
 
     this.pending.set(approval.id, approval);
+    await this.storeApprovalRecord(approval);
 
     await auditLogger.log({
       action: 'approval.enqueued',
@@ -46,7 +118,7 @@ class ApprovalQueue {
       id: approval.id,
       actionType: action.type,
       trustLevel,
-      description: this.getActionDescription(action),
+      description: approval.description || this.getActionDescription(action),
       payload: this.summarizePayload(action.payload),
       status: approval.status,
       createdAt: approval.createdAt,
@@ -81,7 +153,7 @@ class ApprovalQueue {
   }
 
   async approve(approvalId, userId) {
-    const approval = this.pending.get(approvalId);
+    const approval = await this.loadApproval(approvalId);
     
     if (!approval) {
       throw new Error(`Approval not found: ${approvalId}`);
@@ -95,6 +167,7 @@ class ApprovalQueue {
     approval.approvedAt = new Date().toISOString();
     this.pending.delete(approvalId);
     this.completed.set(approvalId, approval);
+    await this.storeApprovalRecord(approval);
 
     context.removePendingApproval(approvalId);
 
@@ -110,7 +183,7 @@ class ApprovalQueue {
   }
 
   async deny(approvalId, userId, reason = null) {
-    const approval = this.pending.get(approvalId);
+    const approval = await this.loadApproval(approvalId);
     
     if (!approval) {
       throw new Error(`Approval not found: ${approvalId}`);
@@ -125,6 +198,7 @@ class ApprovalQueue {
     approval.denialReason = reason;
     this.pending.delete(approvalId);
     this.completed.set(approvalId, approval);
+    await this.storeApprovalRecord(approval);
 
     context.removePendingApproval(approvalId);
 
@@ -140,22 +214,74 @@ class ApprovalQueue {
     return approval;
   }
 
-  listPending(userId) {
-    const userPending = Array.from(this.pending.values())
-      .filter(a => a.userId === userId)
-      .map(a => this.formatApprovalRequest(a));
-    
-    return userPending;
+  async listPending(userId) {
+    if (!this.storage) {
+      return Array.from(this.pending.values())
+        .filter(a => a.userId === userId)
+        .map(a => this.formatApprovalRequest(a));
+    }
+
+    try {
+      const records = await this.storage.query('approvals', {
+        eq: { userId, status: 'pending' },
+        orderBy: { column: 'createdAt', direction: 'desc' },
+        limit: 50,
+      });
+
+      return records.map(record => {
+        const approval = this.hydrate(record);
+        this.pending.set(approval.id, approval);
+        return this.formatApprovalRequest(approval);
+      });
+    } catch (error) {
+      if (isRecoverableStorageError(error)) {
+        this.storage = null;
+        return Array.from(this.pending.values())
+          .filter(a => a.userId === userId)
+          .map(a => this.formatApprovalRequest(a));
+      }
+      throw error;
+    }
   }
 
-  get(approvalId) {
+  async loadApproval(approvalId) {
     if (this.pending.has(approvalId)) {
-      return this.formatApprovalRequest(this.pending.get(approvalId));
+      return this.pending.get(approvalId);
     }
     if (this.completed.has(approvalId)) {
-      return this.formatApprovalRequest(this.completed.get(approvalId));
+      return this.completed.get(approvalId);
     }
-    return null;
+    if (!this.storage) {
+      return null;
+    }
+
+    let record = null;
+    try {
+      record = await this.storage.get('approvals', approvalId);
+    } catch (error) {
+      if (isRecoverableStorageError(error)) {
+        this.storage = null;
+        return null;
+      }
+      throw error;
+    }
+    const approval = this.hydrate(record);
+    if (!approval) {
+      return null;
+    }
+
+    if (approval.status === 'pending') {
+      this.pending.set(approval.id, approval);
+    } else {
+      this.completed.set(approval.id, approval);
+    }
+
+    return approval;
+  }
+
+  async get(approvalId) {
+    const approval = await this.loadApproval(approvalId);
+    return approval ? this.formatApprovalRequest(approval) : null;
   }
 
   async checkExpired() {
@@ -169,6 +295,7 @@ class ApprovalQueue {
         this.pending.delete(id);
         this.completed.set(id, approval);
         expired.push(approval);
+        await this.storeApprovalRecord(approval);
 
         await auditLogger.log({
           action: 'approval.expired',
@@ -194,6 +321,22 @@ class ApprovalQueue {
       denied: userCompleted.filter(a => a.status === 'denied').length,
       expired: userCompleted.filter(a => a.status === 'expired').length,
     };
+  }
+
+  async countPending() {
+    if (!this.storage) {
+      return this.pending.size;
+    }
+
+    try {
+      return await this.storage.count('approvals', { status: 'pending' });
+    } catch (error) {
+      if (isRecoverableStorageError(error)) {
+        this.storage = null;
+        return this.pending.size;
+      }
+      throw error;
+    }
   }
 }
 

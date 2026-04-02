@@ -204,7 +204,9 @@ class StorageAdapter {
 
     let query = this.client.from(table).delete();
 
-    for (const [key, value] of Object.entries(filters)) {
+    const snakeFilters = toSnakeCase(filters);
+
+    for (const [key, value] of Object.entries(snakeFilters)) {
       if (key === 'pattern') {
         continue;
       }
@@ -227,7 +229,9 @@ class StorageAdapter {
 
     let query = this.client.from(table).select('*', { count: 'exact', head: true });
 
-    for (const [key, value] of Object.entries(filters)) {
+    const snakeFilters = toSnakeCase(filters);
+
+    for (const [key, value] of Object.entries(snakeFilters)) {
       query = query.eq(key, value);
     }
 

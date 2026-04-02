@@ -1,9 +1,8 @@
 import express from 'express';
-import { IntentRouter } from './src/router/intent.js';
-import { HandlerRegistry } from './src/handlers/index.js';
 import { AuditLogger } from './src/audit/telegramLogger.js';
 import storageAdapter from './src/adapters/storage/index.js';
 import config from './config/index.js';
+import CindyRuntime from './src/core/runtime.js';
 
 const app = express();
 app.use(express.json());
@@ -26,7 +25,7 @@ if (aiConfig.provider && aiConfig.apiKey && aiConfig.model) {
   try {
     const { OpenAI } = await import('openai');
     const clientOptions = {
-      apiKey: aiConfig.apiKey
+      apiKey: aiConfig.apiKey,
     };
 
     if (aiConfig.baseUrl) {
@@ -35,8 +34,8 @@ if (aiConfig.provider && aiConfig.apiKey && aiConfig.model) {
 
     if (aiConfig.provider === 'openrouter') {
       clientOptions.defaultHeaders = {
-        'HTTP-Referer': aiConfig.referer || 'https://cindy-9bti.onrender.com',
-        'X-OpenRouter-Title': aiConfig.title || 'CINDY'
+        'HTTP-Referer': aiConfig.referer || 'https://cindy-1ud0.onrender.com',
+        'X-OpenRouter-Title': aiConfig.title || 'CINDY',
       };
     }
 
@@ -49,134 +48,130 @@ if (aiConfig.provider && aiConfig.apiKey && aiConfig.model) {
   console.warn('No AI configured');
 }
 
-const intentRouter = new IntentRouter();
-const handlers = new HandlerRegistry(storage, intentRouter, openai, aiConfig);
+const runtime = new CindyRuntime({ storage, openai, aiConfig });
+const telegram = runtime.telegram;
 const auditLogger = new AuditLogger(storage);
 
 console.log('Pipeline initialized');
 
-function getUserId(message) {
-  return message.from?.username || message.from?.first_name || `tg_${message.from?.id}`;
+function getUserId(from = {}) {
+  return from.username || from.first_name || `tg_${from.id}`;
 }
 
-async function sendTelegramMessage(chatId, text) {
-  if (!config.telegram?.botToken) {
-    throw new Error('Telegram bot token not configured');
-  }
-
-  const telegramUrl = `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`;
-  const telegramResponse = await fetch(telegramUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text
-    })
-  });
-
-  if (!telegramResponse.ok) {
-    const errorBody = await telegramResponse.text();
-    throw new Error(`Telegram API error (${telegramResponse.status}): ${errorBody}`);
-  }
-}
-
-async function resolveMessage(handlers, routeResult, userId, text) {
-  if (routeResult.intent === 'unknown' && handlers.hasAI()) {
-    try {
-      const aiResult = await handlers.chatWithAI(userId, text);
-      if (aiResult?.success && aiResult?.message) {
-        return {
-          result: aiResult,
-          execution: { source: 'ai', handler: 'ai', action: 'chat' }
-        };
-      }
-    } catch (error) {
-      console.error('AI request failed, falling back to handler:', error.message);
-    }
-  }
-
-  const handlerResult = await handlers.execute(
-    routeResult.handler,
-    routeResult.action,
-    userId,
-    routeResult.params
-  );
-
-  return {
-    result: handlerResult,
-    execution: {
-      source: 'handler',
-      handler: routeResult.handler,
-      action: routeResult.action
-    }
-  };
+async function sendTelegramMessage(chatId, text, options = {}) {
+  return await telegram.sendMessage(chatId, text, options);
 }
 
 app.get('/', (req, res) => {
   res.send('CINDY is running!');
 });
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    ai: handlers.hasAI(),
-    storage: !!storage,
-    aiProvider: aiConfig.provider,
-    aiModel: aiConfig.model
-  });
+app.get('/health', async (req, res) => {
+  res.json(await runtime.getHealth());
 });
 
-app.post('/telegram/webhook', async (req, res) => {
-  const { message } = req.body;
+app.get('/auth/google/start', (req, res) => {
+  const userId = String(req.query.userId || 'default-user');
+  const url = runtime.getConnectGoogleUrl(userId);
 
-  if (!message || !message.text || !message.chat) {
-    return res.json({ ok: true });
+  if (!url) {
+    return res.status(400).send('Google OAuth is not configured.');
+  }
+
+  return res.redirect(url);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.status(400).send(`Google authorization failed: ${error}`);
+  }
+
+  if (!code) {
+    return res.status(400).send('Missing Google authorization code.');
+  }
+
+  try {
+    const result = await runtime.handleGoogleCallback(String(code), String(state || 'default-user'));
+    return res.send(`Google connected for ${result.userId}. You can return to Telegram and ask CINDY about your inbox or calendar.`);
+  } catch (authError) {
+    return res.status(500).send(`Google callback failed: ${authError.message}`);
+  }
+});
+
+async function handleCallbackQuery(callbackQuery) {
+  const userId = getUserId(callbackQuery.from);
+  const chatId = callbackQuery.message?.chat?.id;
+  const data = callbackQuery.data || '';
+
+  let result = { success: false, message: 'Unknown approval action.' };
+  if (data.startsWith('approve:')) {
+    result = await runtime.processApprovalDecision(userId, data.replace('approve:', ''), 'approve');
+  } else if (data.startsWith('deny:')) {
+    result = await runtime.processApprovalDecision(userId, data.replace('deny:', ''), 'deny');
+  }
+
+  await telegram.answerCallbackQuery(callbackQuery.id, result.success ? 'Done' : 'Needs attention');
+
+  if (chatId && result.message) {
+    await sendTelegramMessage(chatId, result.message, result.telegram || {});
+  }
+
+  await auditLogger.logAction(userId, 'telegram.callback', {
+    callbackData: data,
+    success: result.success ?? false,
+  }, result.success ? 'success' : 'failed');
+}
+
+async function handleTelegramMessage(message) {
+  if (!message?.text || !message.chat) {
+    return;
   }
 
   const chatId = message.chat.id;
   const text = message.text;
   const messageId = message.message_id;
-  const userId = getUserId(message);
+  const userId = getUserId(message.from);
   const userName = message.from?.first_name || 'User';
 
+  console.log(`Telegram message from ${userName}: ${text}`);
+
+  await auditLogger.logIncoming(userId, messageId, text, chatId);
+
+  const result = await runtime.processMessage(userId, text);
+  const responseText = result?.message || 'Something went wrong. Try again.';
+
+  await sendTelegramMessage(chatId, responseText, result.telegram || {});
+
+  await auditLogger.logAction(
+    userId,
+    'telegram.message',
+    {
+      input: text,
+      success: result?.success ?? false,
+    },
+    result?.success ? 'success' : 'failed'
+  );
+
+  await auditLogger.logOutgoing(userId, messageId, responseText, 'telegram');
+}
+
+app.post('/telegram/webhook', async (req, res) => {
   try {
-    console.log(`Telegram message from ${userName}: ${text}`);
+    if (req.body?.callback_query) {
+      await handleCallbackQuery(req.body.callback_query);
+      return res.json({ ok: true });
+    }
 
-    await auditLogger.logIncoming(userId, messageId, text, chatId);
-
-    const routeResult = intentRouter.route(text);
-    console.log(`Intent detected: ${routeResult.intent}`);
-
-    const { result, execution } = await resolveMessage(handlers, routeResult, userId, text);
-    const responseText = result?.message || 'Something went wrong. Try again.';
-
-    await sendTelegramMessage(chatId, responseText);
-
-    await auditLogger.logAction(
-      userId,
-      routeResult.intent,
-      {
-        source: execution.source,
-        handler: execution.handler,
-        action: execution.action,
-        params: routeResult.params,
-        success: result?.success ?? false
-      },
-      result?.success ? 'success' : 'failed'
-    );
-
-    await auditLogger.logOutgoing(userId, messageId, responseText, routeResult.intent);
+    if (req.body?.message) {
+      await handleTelegramMessage(req.body.message);
+      return res.json({ ok: true });
+    }
 
     return res.json({ ok: true });
   } catch (error) {
     console.error('Pipeline error:', error);
-
-    try {
-      await auditLogger.logError(userId, 'telegram.webhook', error);
-    } catch (logError) {
-      console.error('Failed to record webhook error:', logError);
-    }
-
     return res.json({ ok: false, error: error.message });
   }
 });

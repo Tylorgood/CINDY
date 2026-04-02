@@ -7,6 +7,7 @@ import approvalQueue from './core/approval.js';
 import auditLogger from './audit/logger.js';
 import eventTrigger from './triggers/index.js';
 import { validateEnvironment } from './utils/secrets.js';
+import googleAuthClient from './adapters/gmail/client.js';
 
 class PersonalAgent {
   constructor() {
@@ -57,17 +58,8 @@ class PersonalAgent {
         const { GmailAdapter } = await import('./adapters/gmail/index.js');
         const { CalendarAdapter } = await import('./adapters/calendar/index.js');
         
-        const { GoogleAuth } = await import('google-auth-library');
-        
-        const auth = new GoogleAuth({
-          clientId: config.google.clientId,
-          clientSecret: config.google.clientSecret,
-          redirectUri: config.google.redirectUri,
-          scopes: config.google.scopes,
-        });
-
-        this.adapters.gmail = new GmailAdapter(auth);
-        this.adapters.calendar = new CalendarAdapter(auth);
+        this.adapters.gmail = new GmailAdapter(googleAuthClient);
+        this.adapters.calendar = new CalendarAdapter(googleAuthClient);
         console.log('✓ Gmail adapter initialized');
         console.log('✓ Calendar adapter initialized');
       } catch (error) {
@@ -125,7 +117,7 @@ class PersonalAgent {
   }
 
   async approveAction(approvalId, userId, decision, reason = null) {
-    const approval = approvalQueue.get(approvalId);
+    const approval = await approvalQueue.get(approvalId);
     
     if (decision === 'approve') {
       const approved = await approvalQueue.approve(approvalId, userId);
