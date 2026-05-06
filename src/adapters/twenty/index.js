@@ -55,19 +55,15 @@ class TwentyAdapter {
 
   async getDeals() {
     const query = `
-      query GetOpportunities {
-        opportunities {
+      query GetCompanies {
+        companies {
           id
           name
-          stage {
-            id
-            name
-          }
         }
       }
     `;
     const data = await this.graphql(query);
-    return data?.opportunities || [];
+    return data?.companies || [];
   }
 
   async createNote(payload, idempotencyKey = null, stepId = null) {
@@ -91,7 +87,6 @@ class TwentyAdapter {
       input: {
         body: payload.body || payload.name || 'Note from CINDY',
         ...(payload.companyId ? { companyId: payload.companyId } : {}),
-        ...(payload.opportunityId ? { opportunityId: payload.opportunityId } : {}),
       },
     };
 
@@ -126,8 +121,6 @@ class TwentyAdapter {
       input: {
         name: payload.name || 'Unknown Company',
         ...(payload.domainName ? { domainName: payload.domainName } : {}),
-        ...(payload.address ? { address: payload.address } : {}),
-        ...(payload.employees ? { employees: payload.employees } : {}),
       },
     };
 
@@ -149,14 +142,10 @@ class TwentyAdapter {
     }
 
     const mutation = `
-      mutation UpdateOpportunity($id: ID!, $input: OpportunityUpdateInput!) {
-        updateOpportunity(id: $id, data: $input) {
+      mutation UpdateCompany($id: ID!, $input: CompanyUpdateInput!) {
+        updateCompany(id: $id, data: $input) {
           id
           name
-          stage {
-            id
-            name
-          }
         }
       }
     `;
@@ -172,7 +161,7 @@ class TwentyAdapter {
       await this.recordIdempotencyKey(stepId, idempotencyKey);
     }
 
-    return data?.updateOpportunity;
+    return data?.updateCompany;
   }
 }
 
