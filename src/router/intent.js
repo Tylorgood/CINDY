@@ -225,6 +225,87 @@ export class IntentRouter {
       action: 'codexRefine',
       extract: match => ({ request: match[1] })
     });
+
+    this.intents.set('jobs_list', {
+      patterns: [
+        /^(?:jobs|show jobs|list jobs|my jobs)$/i
+      ],
+      handler: 'runtime',
+      action: 'listJobs'
+    });
+
+    this.intents.set('job_status', {
+      patterns: [
+        /^(?:status|job status)\s+([a-z0-9-]+)/i
+      ],
+      handler: 'runtime',
+      action: 'jobStatus',
+      extract: match => ({ jobId: match[1] })
+    });
+
+    this.intents.set('cancel_job', {
+      patterns: [
+        /^(?:cancel|stop)\s+job\s+([a-z0-9-]+)/i
+      ],
+      handler: 'runtime',
+      action: 'cancelJob',
+      extract: match => ({ jobId: match[1] })
+    });
+
+    this.intents.set('run_codex_job', {
+      patterns: [
+        /^(?:run\s+(?:codex|opencode)\s+on)\s+([^\s]+)\s+(?:to|for)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'runCodexJob',
+      extract: match => ({ repo: match[1], request: match[2] })
+    });
+
+    this.intents.set('connect_twenty', {
+      patterns: [
+        /^(?:connect|link)\s+twenty/i
+      ],
+      handler: 'runtime',
+      action: 'connectTwenty'
+    });
+
+    this.intents.set('update_twenty_deal', {
+      patterns: [
+        /^(?:update\s+twenty\s+deal|update\s+deal)\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'updateTwentyDeal',
+      extract: match => ({ request: match[1] })
+    });
+
+    this.intents.set('search_leads', {
+      patterns: [
+        /^(?:search|find)\s+(?:manufacturing\s+)?leads?\s+(.+)/i,
+        /^(?:get|fetch)\s+leads?\s+(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'searchLeads',
+      extract: match => ({ query: match[1] })
+    });
+
+    this.intents.set('sync_leads', {
+      patterns: [
+        /^(?:sync|export)\s+leads?\s+(?:to\s+)?(?:twenty|crm)/i,
+        /^(?:push|send)\s+leads?\s+(?:to\s+)?(?:twenty|crm)/i
+      ],
+      handler: 'runtime',
+      action: 'syncLeadsToCrm'
+    });
+
+    this.intents.set('find_manufacturers', {
+      patterns: [
+        /^(?:find|search\s+for)\s+manufacturers?\s+(.+)/i,
+        /^(?:manufacturing\s+)?leads?\s+(?:for\s+)?(.+)/i
+      ],
+      handler: 'runtime',
+      action: 'searchLeads',
+      extract: match => ({ query: match?.[1] || match?.[2] || '' })
+    });
   }
 
   /**
@@ -296,6 +377,16 @@ Codex
 "codex prompt: add approval buttons to Telegram"
 "codex brief for repo CINDY fix the Google auth flow"
 "refine that codex prompt to include tests"
+"run codex on CINDY to add a worker queue"
+
+Jobs
+"jobs"
+"status <job-id>"
+"cancel job <job-id>"
+
+Twenty
+"connect twenty"
+"update twenty deal move Acme to proposal"
 
 Approvals
 "approve <id>"

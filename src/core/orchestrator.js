@@ -6,8 +6,9 @@ import { actionTypeLabels, trustLevelLabels } from '../../config/defaults.js';
 import config from '../../config/index.js';
 
 class Orchestrator {
-  constructor(adapters = {}) {
+  constructor(adapters = {}, jobStore = null) {
     this.adapters = adapters;
+    this.jobStore = jobStore;
     this.actionHandlers = new Map();
     this.registerDefaultHandlers();
   }
@@ -31,10 +32,27 @@ class Orchestrator {
 
   async execute(action) {
     const { type, payload, userId, requiresApproval = false, skipApproval = false } = action;
-    
+
     const trustLevel = actionTypeLabels[type] ?? 0;
-    const needsApproval = !skipApproval && (requiresApproval || 
+    const needsApproval = !skipApproval && (requiresApproval ||
       config.approvalRequiredFor.includes(trustLevel));
+
+    // Idempotency: check if this action was already completed
+    const idempotencyKey = payload?.idempotencyKey || action.idempotencyKey;
+    if (idempotencyKey && this.jobStore) {
+      const alreadyExecuted = await this.jobStore.checkIdempotencyKey(idempotencyKey);
+      if (alreadyExecuted) {
+        await auditLogger.log({
+          action: type,
+          userId,
+          trustLevel,
+          status: 'idempotent_skip',
+          payload: this.sanitizePayload(payload),
+          details: { reason: 'duplicate_idempotency_key', key: idempotencyKey },
+        });
+        return { success: true, result: { skipped: true, reason: 'duplicate_idempotency_key' } };
+      }
+    }
 
     context.setActiveTask({
       id: uuidv4(),
@@ -76,6 +94,11 @@ class Orchestrator {
       }
 
       const result = await handler(payload, userId);
+
+      // Record idempotency key after successful execution
+      if (idempotencyKey && action.stepId && this.jobStore) {
+        await this.jobStore.recordIdempotencyKey(action.stepId, idempotencyKey);
+      }
 
       context.completeActiveTask({ success: true, result });
 

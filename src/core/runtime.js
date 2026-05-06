@@ -10,9 +10,13 @@ import googleAuthClient from '../adapters/gmail/client.js';
 import { SmsAdapter } from '../adapters/sms/index.js';
 import { VoiceAdapter } from '../adapters/voice/index.js';
 import { TelegramAdapter } from '../adapters/telegram/index.js';
+import TwentyAdapter from '../adapters/twenty/index.js';
 import { ContactStore } from './contacts.js';
 import { CodexDesk } from './codexDesk.js';
 import { ActionPlanner } from './actionPlanner.js';
+import JobStore from './jobStore.js';
+import WorkerRegistry from './workerRegistry.js';
+import JobSupervisor from './jobSupervisor.js';
 
 function formatList(title, items) {
   if (!items || items.length === 0) {
@@ -53,7 +57,51 @@ export class CindyRuntime {
     this.planner = new ActionPlanner(openai, aiConfig);
     this.pendingOperations = new Map();
     this.adapters = this.initializeAdapters();
-    this.orchestrator = new Orchestrator(this.adapters);
+    this.jobStore = new JobStore(storage);
+    this.orchestrator = new Orchestrator(this.adapters, this.jobStore);
+    this.workerRegistry = new WorkerRegistry(this.jobStore, config.controlPlane);
+    this.supervisor = new JobSupervisor({
+      jobStore: this.jobStore,
+      workerRegistry: this.workerRegistry,
+      telegram: this.telegram,
+      config: config.controlPlane,
+      twentyAdapter: this.adapters.twenty || null,
+      leadGenerator: null, // will be set lazily
+    });
+
+    // Wire idempotency store to adapters that support it
+    if (this.adapters.twenty && this.jobStore) {
+      this.adapters.twenty.setIdempotencyStore(this.jobStore);
+    }
+
+    // Lead generator will be lazy-loaded on first use
+    this.leadGenerator = null;
+    this.leadGeneratorInitialized = false;
+  }
+
+  async getLeadGenerator() {
+    if (this.leadGeneratorInitialized) {
+      return this.leadGenerator;
+    }
+
+    this.leadGeneratorInitialized = true;
+
+    try {
+      const module = await import('../adapters/lead-generator/index.js');
+      const LeadGeneratorAdapter = module.default || module.LeadGeneratorAdapter;
+      if (LeadGeneratorAdapter) {
+        this.leadGenerator = new LeadGeneratorAdapter();
+        this.adapters.leadGenerator = this.leadGenerator;
+        // Also set on supervisor so executeCrmSyncStep can use it
+        if (this.supervisor) {
+          this.supervisor.leadGenerator = this.leadGenerator;
+        }
+      }
+    } catch (error) {
+      console.warn('Lead generator adapter not available:', error.message);
+    }
+
+    return this.leadGenerator;
   }
 
   getPendingOperation(userId) {
@@ -86,6 +134,11 @@ export class CindyRuntime {
       adapters.voice = new VoiceAdapter(twilioClient);
     }
 
+    const twenty = new TwentyAdapter();
+    if (twenty.isConfigured()) {
+      adapters.twenty = twenty;
+    }
+
     return adapters;
   }
 
@@ -103,6 +156,7 @@ export class CindyRuntime {
       adapters: this.getAdapters(),
       approvalBacklog: await approvalQueue.countPending(),
       codexBriefs: await this.codexDesk.countBriefs(),
+      ...(await this.supervisor.getHealth()),
     };
   }
 
@@ -145,11 +199,11 @@ export class CindyRuntime {
     return execution;
   }
 
-  async processMessage(userId, text) {
+  async processMessage(userId, text, context = {}) {
     const route = this.intentRouter.route(text);
 
     if (route.handler === 'runtime') {
-      return await this.handleRuntimeIntent(userId, route, text);
+      return await this.handleRuntimeIntent(userId, route, text, context);
     }
 
     if (route.intent !== 'unknown') {
@@ -167,7 +221,7 @@ export class CindyRuntime {
     });
 
     if (plan.mode === 'action' && plan.actionType) {
-      return await this.executeAction(userId, plan.actionType, plan.params || {}, {});
+      return await this.executeAction(userId, plan.actionType, plan.params || {}, context);
     }
 
     if (plan.reply) {
@@ -256,7 +310,7 @@ export class CindyRuntime {
     return await this.handlers.chatWithAI(userId, text);
   }
 
-  async handleRuntimeIntent(userId, route, originalText) {
+  async handleRuntimeIntent(userId, route, originalText, context = {}) {
     switch (route.action) {
       case 'approve':
         return await this.processApprovalDecision(userId, route.params.approvalId, 'approve');
@@ -288,6 +342,22 @@ export class CindyRuntime {
         return await this.createCodexBrief(userId, route.params.request || originalText, route.params.repo, false);
       case 'codexRefine':
         return await this.createCodexBrief(userId, route.params.request || originalText, null, true);
+      case 'listJobs':
+        return await this.listJobs(userId);
+      case 'jobStatus':
+        return await this.jobStatus(userId, route.params.jobId);
+      case 'cancelJob':
+        return await this.cancelJob(userId, route.params.jobId);
+      case 'runCodexJob':
+        return await this.runCodexJob(userId, route.params.request || originalText, route.params.repo, context);
+      case 'connectTwenty':
+        return await this.connectTwenty();
+      case 'updateTwentyDeal':
+        return await this.updateTwentyDeal(userId, route.params.request || originalText, context);
+      case 'searchLeads':
+        return await this.searchLeads(userId, route.params.query || originalText, context);
+      case 'syncLeadsToCrm':
+        return await this.syncLeadsToCrm(userId, context);
       default:
         return { success: false, message: 'That workflow is not wired yet.' };
     }
@@ -314,6 +384,11 @@ export class CindyRuntime {
         'Generate Codex prompts and engineering briefs',
         'Refine the latest Codex brief',
         'Store briefs for reuse',
+      ]),
+      formatList('Control plane', [
+        'Create durable jobs for coding and business workflows',
+        'Track worker sessions and long-running progress',
+        'Pause at approval checkpoints and resume safely',
       ]),
       approvals.length > 0 ? `Pending approvals: ${approvals.map(item => item.id).join(', ')}` : 'Pending approvals: none',
     ];
@@ -353,15 +428,204 @@ export class CindyRuntime {
         return await this.createCalendarEvent(userId, payload);
       case 'codex.brief':
         return await this.createCodexBrief(userId, payload.request, payload.repo || null, false);
+      case 'coding.run':
+        return await this.runCodexJob(userId, payload.request, payload.repo || null, meta);
+      case 'crm.twenty.update':
+        return await this.updateTwentyDeal(userId, payload.request, meta);
       case 'task.create':
         return await this.handlers.execute('tasks', 'create', userId, payload);
       case 'memory.store':
         return await this.handlers.execute('memory', 'store', userId, payload);
       case 'capabilities.show':
         return await this.showCapabilities(userId);
+      case 'job.resume':
+        return await this.supervisor.resumeJobFromApproval(payload.jobId, payload.stepId);
       default:
         return await this.handlers.chatWithAI(userId, payload.request || '');
     }
+  }
+
+  async listJobs(userId) {
+    const jobs = await this.supervisor.listJobs(userId, 10);
+    if (jobs.length === 0) {
+      return { success: true, message: 'You have no jobs yet. Try "run codex on CINDY to add a worker queue".' };
+    }
+
+    return {
+      success: true,
+      message: `Recent jobs\n${jobs.map(job => `- ${job.id} | ${job.kind} | ${job.phase} | ${job.title}`).join('\n')}`,
+      data: jobs,
+    };
+  }
+
+  async jobStatus(userId, jobId) {
+    if (!jobId) {
+      return { success: false, message: 'Which job ID should I inspect?' };
+    }
+
+    const status = await this.supervisor.getJobStatus(userId, jobId);
+    if (!status?.job) {
+      return { success: false, message: `I could not find job ${jobId}.` };
+    }
+
+    return {
+      success: true,
+      message: this.supervisor.formatJobSummary(status.job, status.steps),
+      data: status,
+    };
+  }
+
+  async cancelJob(userId, jobId) {
+    if (!jobId) {
+      return { success: false, message: 'Which job should I cancel?' };
+    }
+
+    const job = await this.supervisor.cancelJob(userId, jobId);
+    if (!job) {
+      return { success: false, message: `I could not find job ${jobId}.` };
+    }
+
+    return {
+      success: true,
+      message: `Cancelled job ${job.id}.`,
+      data: job,
+    };
+  }
+
+  async runCodexJob(userId, request, repo, context = {}) {
+    if (!request) {
+      return { success: false, message: 'Tell me what you want the coding worker to do.' };
+    }
+
+    const job = await this.supervisor.createCodingJob(userId, request, {
+      repo,
+      telegramChatId: context.telegramChatId || null,
+      telegramMessageId: context.telegramMessageId || null,
+    });
+
+    return {
+      success: true,
+      message: `Queued coding job ${job.id} for ${repo || 'the selected repo'}.\nUse "status ${job.id}" to track it.`,
+      data: job,
+    };
+  }
+
+  async connectTwenty() {
+    if (!this.adapters.twenty) {
+      return {
+        success: false,
+        message: 'Twenty is not configured yet. Set TWENTY_BASE_URL, TWENTY_API_KEY, and optionally TWENTY_WORKSPACE_ID first.',
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Twenty is configured and ready for CRM reads and writes.',
+    };
+  }
+
+  async updateTwentyDeal(userId, request, context = {}) {
+    if (!request) {
+      return { success: false, message: 'Tell me what deal update you want in Twenty.' };
+    }
+
+    const job = await this.supervisor.createTwentyUpdateJob(userId, request, {
+      telegramChatId: context.telegramChatId || null,
+      telegramMessageId: context.telegramMessageId || null,
+    });
+    const result = await this.supervisor.executeTwentyStep(job.id);
+
+    if (result?.success === false) {
+      return result;
+    }
+
+    return {
+      success: true,
+      message: `Queued Twenty update job ${job.id}. Use "status ${job.id}" if you want the trace.`,
+      data: job,
+    };
+  }
+
+  async searchLeads(userId, query, context = {}) {
+    const leadGen = await this.getLeadGenerator();
+    if (!leadGen) {
+      return {
+        success: false,
+        message: 'Lead generator is not configured yet. Set PROSPEO_API_KEY, WIZA_API_KEY, or GOOGLE_PLACES_API_KEY first.',
+      };
+    }
+
+    if (!query) {
+      return { success: false, message: 'What kind of leads should I search for?' };
+    }
+
+    try {
+      const results = await leadGen.searchAll(query, {
+        industry: 'manufacturing',
+        limit: 20,
+      });
+
+      if (results.total === 0) {
+        return {
+          success: true,
+          message: `No manufacturing leads found for "${query}". Try a different search term.`,
+          data: results,
+        };
+      }
+
+      return {
+        success: true,
+        message: leadGen.formatForDisplay(results.leads, 15),
+        data: results,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Lead search failed: ${error.message}`,
+      };
+    }
+  }
+
+  async syncLeadsToCrm(userId, context = {}) {
+    const leadGen = await this.getLeadGenerator();
+    if (!leadGen) {
+      return {
+        success: false,
+        message: 'Lead generator is not configured yet. Set PROSPEO_API_KEY, WIZA_API_KEY, or GOOGLE_PLACES_API_KEY first.',
+      };
+    }
+
+    if (!this.adapters.twenty) {
+      return {
+        success: false,
+        message: 'Twenty CRM is not configured yet. Set TWENTY_BASE_URL and TWENTY_API_KEY first.',
+      };
+    }
+
+    // Create a job for this sync operation
+    const job = await this.supervisor.createJob({
+      userId,
+      kind: 'crm_sync',
+      title: 'Sync leads to Twenty CRM',
+      goal: 'Export manufacturing leads to Twenty CRM',
+      backend: 'cloud-twenty',
+      telegramChatId: context.telegramChatId || null,
+      telegramMessageId: context.telegramMessageId || null,
+      meta: { syncType: 'leads_to_crm' },
+    });
+
+    // Execute the sync step directly (cloud job, no worker needed)
+    const result = await this.supervisor.executeCrmSyncStep(job.id);
+
+    if (result?.success === false) {
+      return result;
+    }
+
+    return {
+      success: true,
+      message: `Lead sync job ${job.id} completed. ${result?.message || 'Leads synced to Twenty CRM.'}`,
+      data: { job, result },
+    };
   }
 
   async ensureGoogleConnected(userId) {

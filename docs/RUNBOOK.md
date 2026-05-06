@@ -9,6 +9,17 @@ cd personal-agent
 npm start
 ```
 
+### Starting the Local Worker Bridge
+
+```bash
+npm run worker:local
+```
+
+This requires:
+- `CINDY_COORDINATOR_URL`
+- `CINDY_WORKER_SECRET`
+- a local coding command such as `CINDY_CODING_COMMAND=codex`
+
 Expected output:
 ```
 Initializing Personal Agent...
@@ -27,6 +38,12 @@ ps aux | grep node
 
 # Check logs
 tail -f logs/combined.log
+```
+
+Check active jobs in Telegram:
+```text
+jobs
+status <job-id>
 ```
 
 ### Viewing Audit Logs

@@ -92,6 +92,12 @@ const config = {
     phoneNumber: process.env.TWILIO_PHONE_NUMBER,
   },
 
+  twenty: {
+    baseUrl: process.env.TWENTY_BASE_URL || null,
+    apiKey: process.env.TWENTY_API_KEY || null,
+    workspaceId: process.env.TWENTY_WORKSPACE_ID || null,
+  },
+
   pushover: {
     userKey: process.env.PUSHOVER_USER_KEY,
     appToken: process.env.PUSHOVER_APP_TOKEN,
@@ -124,6 +130,14 @@ const config = {
 
   opencode: {
     apiKey: process.env.OPENCODE_API_KEY,
+  },
+
+  controlPlane: {
+    appUrl: process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || null,
+    workerSecret: process.env.CINDY_WORKER_SECRET || null,
+    heartbeatSeconds: parseInt(process.env.CINDY_WORKER_HEARTBEAT_SECONDS || '30', 10),
+    claimBatchSize: parseInt(process.env.CINDY_WORKER_CLAIM_BATCH_SIZE || '1', 10),
+    defaultCodingBackend: process.env.CINDY_DEFAULT_CODING_BACKEND || 'local-codex-bridge',
   },
 
   user: {

@@ -143,6 +143,124 @@ CREATE TABLE IF NOT EXISTS codex_briefs (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  parent_job_id UUID,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  phase TEXT NOT NULL DEFAULT 'queued'
+    CHECK (phase IN ('queued', 'planning', 'awaiting_approval', 'running', 'blocked', 'completed', 'failed', 'cancelled')),
+  backend TEXT,
+  requested_tools TEXT[] DEFAULT '{}',
+  requested_by TEXT DEFAULT 'telegram',
+  telegram_chat_id TEXT,
+  telegram_message_id TEXT,
+  summary TEXT,
+  result JSONB DEFAULT '{}',
+  meta JSONB DEFAULT '{}',
+  last_error TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS job_steps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID NOT NULL,
+  step_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  phase TEXT NOT NULL DEFAULT 'queued'
+    CHECK (phase IN ('queued', 'running', 'awaiting_approval', 'completed', 'failed', 'cancelled', 'blocked')),
+  worker_type TEXT,
+  worker_id TEXT,
+  input JSONB DEFAULT '{}',
+  output JSONB DEFAULT '{}',
+  status_message TEXT,
+  approval_id UUID,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS job_artifacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID NOT NULL,
+  step_id UUID,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  content TEXT,
+  meta JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS worker_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id TEXT NOT NULL,
+  worker_type TEXT NOT NULL,
+  display_name TEXT,
+  capabilities JSONB DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'online'
+    CHECK (status IN ('online', 'busy', 'offline', 'paused')),
+  last_heartbeat_at TIMESTAMPTZ DEFAULT NOW(),
+  current_job_id UUID,
+  current_step_id UUID,
+  meta JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tool_credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  label TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'available'
+    CHECK (status IN ('available', 'missing', 'revoked')),
+  meta JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS crm_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'connected'
+    CHECK (status IN ('connected', 'disconnected', 'error')),
+  meta JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS runbooks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  command TEXT NOT NULL,
+  requires_approval BOOLEAN DEFAULT true,
+  allowed_worker_type TEXT DEFAULT 'runbook',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS operating_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================
 -- ROW LEVEL SECURITY
 -- ============================================
@@ -157,6 +275,14 @@ ALTER TABLE oauth_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE codex_briefs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_artifacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE worker_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tool_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crm_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE runbooks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE operating_preferences ENABLE ROW LEVEL SECURITY;
 
 -- Create policies
 CREATE POLICY "Users can manage own profiles" ON profiles
@@ -189,6 +315,30 @@ CREATE POLICY "Users can manage own contacts" ON contacts
 CREATE POLICY "Users can manage own codex briefs" ON codex_briefs
   FOR ALL USING (true);
 
+CREATE POLICY "Users can manage own jobs" ON jobs
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own job steps" ON job_steps
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own job artifacts" ON job_artifacts
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage worker sessions" ON worker_sessions
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own tool credentials" ON tool_credentials
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own crm accounts" ON crm_accounts
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own runbooks" ON runbooks
+  FOR ALL USING (true);
+
+CREATE POLICY "Users can manage own operating preferences" ON operating_preferences
+  FOR ALL USING (true);
+
 -- ============================================
 -- INDEXES
 -- ============================================
@@ -211,3 +361,15 @@ CREATE INDEX idx_contacts_lookup ON contacts(user_id, channel, lookup_key);
 CREATE INDEX idx_contacts_address ON contacts(user_id, channel, address);
 CREATE INDEX idx_codex_briefs_user ON codex_briefs(user_id);
 CREATE INDEX idx_codex_briefs_created ON codex_briefs(created_at DESC);
+CREATE INDEX idx_jobs_user ON jobs(user_id);
+CREATE INDEX idx_jobs_phase ON jobs(phase);
+CREATE INDEX idx_jobs_created ON jobs(created_at DESC);
+CREATE INDEX idx_job_steps_job ON job_steps(job_id);
+CREATE INDEX idx_job_steps_phase ON job_steps(phase);
+CREATE INDEX idx_job_artifacts_job ON job_artifacts(job_id);
+CREATE INDEX idx_worker_sessions_worker ON worker_sessions(worker_id);
+CREATE INDEX idx_worker_sessions_status ON worker_sessions(status);
+CREATE INDEX idx_tool_credentials_user ON tool_credentials(user_id);
+CREATE INDEX idx_crm_accounts_user ON crm_accounts(user_id);
+CREATE INDEX idx_runbooks_user ON runbooks(user_id);
+CREATE INDEX idx_operating_preferences_user_key ON operating_preferences(user_id, key);

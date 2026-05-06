@@ -205,7 +205,7 @@ export class ContactStore {
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
-      if (isMissingTableError(error)) {
+      if (isRecoverableStorageError(error)) {
         this.storage = null;
         return null;
       }

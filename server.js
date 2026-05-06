@@ -58,6 +58,19 @@ function getUserId(from = {}) {
   return from.username || from.first_name || `tg_${from.id}`;
 }
 
+function authorizeWorker(req, res, next) {
+  if (!config.controlPlane?.workerSecret) {
+    return res.status(503).json({ ok: false, error: 'Worker bridge secret not configured' });
+  }
+
+  const secret = req.headers['x-cindy-worker-secret'];
+  if (secret !== config.controlPlane.workerSecret) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized worker' });
+  }
+
+  return next();
+}
+
 async function sendTelegramMessage(chatId, text, options = {}) {
   return await telegram.sendMessage(chatId, text, options);
 }
@@ -100,6 +113,47 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+app.post('/workers/register', authorizeWorker, async (req, res) => {
+  try {
+    const session = await runtime.workerRegistry.registerWorker(req.body || {});
+    return res.json({ ok: true, session });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/workers/heartbeat', authorizeWorker, async (req, res) => {
+  try {
+    const session = await runtime.workerRegistry.heartbeat(String(req.body.workerId), req.body || {});
+    return res.json({ ok: true, session });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/workers/jobs/claim', authorizeWorker, async (req, res) => {
+  try {
+    const claimed = await runtime.supervisor.claimNextJob(String(req.body.workerId), String(req.body.workerType || 'coding'));
+    return res.json({ ok: true, ...(claimed || {}) });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/workers/jobs/:jobId/events', authorizeWorker, async (req, res) => {
+  try {
+    await runtime.supervisor.processWorkerEvent(
+      String(req.body.workerId),
+      String(req.params.jobId),
+      String(req.body.stepId),
+      req.body.event || {}
+    );
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 async function handleCallbackQuery(callbackQuery) {
   const userId = getUserId(callbackQuery.from);
   const chatId = callbackQuery.message?.chat?.id;
@@ -139,7 +193,10 @@ async function handleTelegramMessage(message) {
 
   await auditLogger.logIncoming(userId, messageId, text, chatId);
 
-  const result = await runtime.processMessage(userId, text);
+  const result = await runtime.processMessage(userId, text, {
+    telegramChatId: chatId,
+    telegramMessageId: messageId,
+  });
   const responseText = result?.message || 'Something went wrong. Try again.';
 
   await sendTelegramMessage(chatId, responseText, result.telegram || {});
