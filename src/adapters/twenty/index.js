@@ -30,29 +30,44 @@ class TwentyAdapter {
     return await this.idempotencyStore.recordIdempotencyKey(stepId, key);
   }
 
-  async request(path, options = {}) {
+  async graphql(query, variables = {}) {
     if (!this.isConfigured()) {
       throw new Error('Twenty adapter not configured');
     }
 
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
-      ...options,
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/graphql`, {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        'X-Auth-Token': this.apiKey,
         'Content-Type': 'application/json',
-        ...(options.headers || {}),
       },
+      body: JSON.stringify({ query, variables }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Twenty API error (${response.status}): ${await response.text()}`);
+    const result = await response.json();
+
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`Twenty GraphQL error: ${JSON.stringify(result.errors)}`);
     }
 
-    return await response.json();
+    return result.data;
   }
 
   async getDeals() {
-    return await this.request('/rest/opportunities');
+    const query = `
+      query GetOpportunities {
+        opportunities {
+          id
+          name
+          stage {
+            id
+            name
+          }
+        }
+      }
+    `;
+    const data = await this.graphql(query);
+    return data?.opportunities || [];
   }
 
   async createNote(payload, idempotencyKey = null, stepId = null) {
@@ -63,16 +78,30 @@ class TwentyAdapter {
       }
     }
 
-    const result = await this.request('/rest/notes', {
-      method: 'POST',
-      body: JSON.stringify({ ...payload, idempotencyKey }),
-    });
+    const mutation = `
+      mutation CreateNote($input: NoteCreateInput!) {
+        createNote(data: $input) {
+          id
+          body
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        body: payload.body || payload.name || 'Note from CINDY',
+        ...(payload.companyId ? { companyId: payload.companyId } : {}),
+        ...(payload.opportunityId ? { opportunityId: payload.opportunityId } : {}),
+      },
+    };
+
+    const data = await this.graphql(mutation, variables);
 
     if (idempotencyKey && stepId) {
       await this.recordIdempotencyKey(stepId, idempotencyKey);
     }
 
-    return result;
+    return data?.createNote;
   }
 
   async createCompany(payload, idempotencyKey = null, stepId = null) {
@@ -83,16 +112,32 @@ class TwentyAdapter {
       }
     }
 
-    const result = await this.request('/rest/companies', {
-      method: 'POST',
-      body: JSON.stringify({ ...payload, idempotencyKey }),
-    });
+    const mutation = `
+      mutation CreateCompany($input: CompanyCreateInput!) {
+        createCompany(data: $input) {
+          id
+          name
+          domainName
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        name: payload.name || 'Unknown Company',
+        ...(payload.domainName ? { domainName: payload.domainName } : {}),
+        ...(payload.address ? { address: payload.address } : {}),
+        ...(payload.employees ? { employees: payload.employees } : {}),
+      },
+    };
+
+    const data = await this.graphql(mutation, variables);
 
     if (idempotencyKey && stepId) {
       await this.recordIdempotencyKey(stepId, idempotencyKey);
     }
 
-    return result;
+    return data?.createCompany;
   }
 
   async updateOpportunity(opportunityId, payload, idempotencyKey = null, stepId = null) {
@@ -103,16 +148,31 @@ class TwentyAdapter {
       }
     }
 
-    const result = await this.request(`/rest/opportunities/${opportunityId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ ...payload, idempotencyKey }),
-    });
+    const mutation = `
+      mutation UpdateOpportunity($id: ID!, $input: OpportunityUpdateInput!) {
+        updateOpportunity(id: $id, data: $input) {
+          id
+          name
+          stage {
+            id
+            name
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      id: opportunityId,
+      input: payload,
+    };
+
+    const data = await this.graphql(mutation, variables);
 
     if (idempotencyKey && stepId) {
       await this.recordIdempotencyKey(stepId, idempotencyKey);
     }
 
-    return result;
+    return data?.updateOpportunity;
   }
 }
 
