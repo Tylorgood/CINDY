@@ -233,6 +233,46 @@ app.post('/telegram/webhook', async (req, res) => {
   }
 });
 
+// OpenAI-compatible API for OpenCode integration
+app.get('/v1/models', (_req, res) => {
+  const models = [{
+    id: config.ai.model || 'cindy',
+    object: 'model',
+    created: Math.floor(Date.now() / 1000),
+    owned_by: 'cindy',
+  }];
+  res.json({ object: 'list', data: models });
+});
+
+app.post('/v1/chat/completions', async (req, res) => {
+  try {
+    const { messages, stream } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: { message: 'messages is required', type: 'invalid_request_error' } });
+    }
+
+    if (!openai) {
+      return res.status(503).json({ error: { message: 'CINDY AI brain not configured', type: 'server_error' } });
+    }
+
+    const model = req.body.model || config.ai.model;
+    const response = await openai.chat.completions.create({
+      model,
+      messages,
+      temperature: req.body.temperature ?? 0.7,
+      max_tokens: req.body.max_tokens || 4096,
+      top_p: req.body.top_p ?? 1,
+      stream: false,
+    });
+
+    return res.json(response);
+  } catch (error) {
+    console.error('/v1/chat/completions error:', error);
+    return res.status(500).json({ error: { message: error.message, type: 'server_error' } });
+  }
+});
+
 app.listen(config.port, () => {
   console.log(`CINDY running on port ${config.port}`);
 });
