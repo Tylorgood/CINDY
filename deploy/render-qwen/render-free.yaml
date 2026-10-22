@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: cindy-qwen-brain
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./deploy/render-qwen/Dockerfile.free
+    dockerContext: .
+    healthCheckPath: /
+    buildFilter:
+      paths:
+        - deploy/render-qwen/**
+    envVars:
+      - key: MODEL_PATH
+        value: /models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+      - key: MODEL_CONTEXT_SIZE
+        value: 2048
+      - key: MODEL_PARALLEL
+        value: 1
+      - key: LLAMA_THREADS
+        value: 1
+      - key: LLAMA_API_KEY
+        sync: false

@@ -6,6 +6,39 @@ This is the simplest fully-Render path for a permanent CINDY brain:
 2. `Qwen2.5` runs as a second Render service
 3. the model file lives on a persistent disk so restarts do not redownload it
 
+## Free-Tier Path
+
+Render's free plan gives 512 MB of RAM and does not allow persistent disks. Use
+the free blueprint instead of the default one:
+
+1. `New` -> `Blueprint`
+2. Connect this repository.
+3. In `Blueprint Path`, enter:
+
+```text
+deploy/render-qwen/render-free.yaml
+```
+
+4. When prompted for `LLAMA_API_KEY`, enter a long random value.
+5. Deploy. The service is named `cindy-qwen-brain`.
+
+The free blueprint bakes `Qwen2.5-0.5B-Instruct` (Q4_K_M, about 400 MB) into the
+Docker image at build time, so no disk is attached and the model is not
+downloaded on every restart. It also caps the context at 2048 and runs a single
+parallel slot to stay within 512 MB.
+
+Free services sleep after about 15 minutes of inactivity and cold-start in
+roughly 30 to 60 seconds. Raise the client timeout (for example
+`SKELETON_REASONING_TIMEOUT_MS=90000`) and expect the first request after idle
+to be slow. If the service is killed for out-of-memory, the model is still too
+large for the free plan; move to the default `standard` blueprint.
+
+The model id reported by the free service is:
+
+```text
+qwen2.5-0.5b-instruct-q4_k_m.gguf
+```
+
 ## What This Setup Uses
 
 - `llama.cpp` as the model server
