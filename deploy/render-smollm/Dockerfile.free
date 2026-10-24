@@ -6,7 +6,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
-ARG MODEL_URL=https://huggingface.co/tensorblock/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true
+ARG MODEL_URL=https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true
 ARG MODEL_PATH=/models/smollm2-360m-instruct-q4_k_m.gguf
 ARG HF_TOKEN=""
 
