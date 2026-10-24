@@ -1,0 +1,23 @@
+FROM ghcr.io/ggml-org/llama.cpp:server
+
+USER root
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG MODEL_URL=https://huggingface.co/tensorblock/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true
+ARG MODEL_PATH=/models/smollm2-360m-instruct-q4_k_m.gguf
+ARG HF_TOKEN=""
+
+RUN mkdir -p /models \
+  && if [ -n "$HF_TOKEN" ]; then \
+       curl -L --fail -H "Authorization: Bearer $HF_TOKEN" -o "$MODEL_PATH" "$MODEL_URL"; \
+     else \
+       curl -L --fail -o "$MODEL_PATH" "$MODEL_URL"; \
+     fi \
+  && test -s "$MODEL_PATH"
+
+COPY deploy/render-smollm/start-smollm-free.sh /usr/local/bin/start-smollm-free.sh
+RUN chmod +x /usr/local/bin/start-smollm-free.sh
+ENTRYPOINT ["/usr/local/bin/start-smollm-free.sh"]
