@@ -6,7 +6,7 @@ services:
     region: oregon
     dockerfilePath: ./deploy/render-qwen/Dockerfile.free
     dockerContext: .
-    healthCheckPath: /
+    healthCheckPath: /health
     buildFilter:
       paths:
         - deploy/render-qwen/**
